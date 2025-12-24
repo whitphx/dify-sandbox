@@ -8,26 +8,47 @@ const (
 	SYS_GETRANDOM = 318
 	SYS_RSEQ      = 334
 	SYS_SENDMMSG  = 307
+	SYS_GETCWD    = 79
+	SYS_READLINKAT = 267
+	SYS_STATX     = 332
+	SYS_CLONE3    = 435
+	SYS_FACCESSAT2 = 439
+	SYS_EPOLL_PWAIT2 = 441
+	SYS_EPOLL_WAIT = 232
+	SYS_PPOLL     = 271
+	SYS_TKILL     = 200
+	SYS_EVENTFD2  = 290
+	SYS_EVENTFD   = 284
+	SYS_RESTART_SYSCALL = 219
 )
 
 var ALLOW_SYSCALLS = []int{
 	// file io
 	syscall.SYS_NEWFSTATAT, syscall.SYS_IOCTL, syscall.SYS_LSEEK, syscall.SYS_GETDENTS64,
-	syscall.SYS_WRITE, syscall.SYS_CLOSE, syscall.SYS_OPENAT, syscall.SYS_READ,
+	syscall.SYS_WRITE, syscall.SYS_CLOSE, syscall.SYS_OPENAT, syscall.SYS_READ, syscall.SYS_WRITEV,
+	syscall.SYS_CHDIR, syscall.SYS_FSTAT, syscall.SYS_FCNTL, syscall.SYS_PIPE2,
+	syscall.SYS_DUP, syscall.SYS_DUP2, syscall.SYS_DUP3, SYS_GETCWD, SYS_READLINKAT, SYS_STATX, SYS_FACCESSAT2, SYS_EVENTFD2, SYS_EVENTFD,
+	syscall.SYS_FACCESSAT, syscall.SYS_STAT, syscall.SYS_LSTAT,
+	syscall.SYS_GETXATTR, syscall.SYS_LGETXATTR, syscall.SYS_FGETXATTR, syscall.SYS_FLOCK,
 	// thread
-	syscall.SYS_FUTEX,
+	syscall.SYS_FUTEX, SYS_CLONE3, SYS_TKILL, SYS_RESTART_SYSCALL,
 	// memory
 	syscall.SYS_MMAP, syscall.SYS_BRK, syscall.SYS_MPROTECT, syscall.SYS_MUNMAP, syscall.SYS_RT_SIGRETURN,
-	syscall.SYS_MREMAP,
+	syscall.SYS_MREMAP, syscall.SYS_MADVISE,
 
 	// user/group
-	syscall.SYS_SETUID, syscall.SYS_SETGID, syscall.SYS_GETUID,
+	syscall.SYS_SETUID, syscall.SYS_SETGID, syscall.SYS_GETUID, syscall.SYS_CAPGET, syscall.SYS_CAPSET,
 	// process
 	syscall.SYS_GETPID, syscall.SYS_GETPPID, syscall.SYS_GETTID,
 	syscall.SYS_EXIT, syscall.SYS_EXIT_GROUP,
 	syscall.SYS_TGKILL, syscall.SYS_RT_SIGACTION, syscall.SYS_IOCTL,
 	syscall.SYS_SCHED_YIELD,
 	syscall.SYS_SET_ROBUST_LIST, syscall.SYS_GET_ROBUST_LIST, SYS_RSEQ,
+	syscall.SYS_PRLIMIT64, syscall.SYS_SYSINFO,
+	syscall.SYS_ARCH_PRCTL, syscall.SYS_SET_TID_ADDRESS,
+	syscall.SYS_GETEUID, syscall.SYS_GETEGID, syscall.SYS_GETRESUID, syscall.SYS_GETRESGID,
+	syscall.SYS_PRCTL, syscall.SYS_SCHED_GETAFFINITY, syscall.SYS_FADVISE64, syscall.SYS_READLINK,
+	syscall.SYS_UNAME, syscall.SYS_FSTATFS,
 
 	// time
 	syscall.SYS_CLOCK_GETTIME, syscall.SYS_GETTIMEOFDAY, syscall.SYS_NANOSLEEP,
@@ -35,18 +56,18 @@ var ALLOW_SYSCALLS = []int{
 	syscall.SYS_EPOLL_CTL, syscall.SYS_CLOCK_NANOSLEEP, syscall.SYS_PSELECT6,
 	syscall.SYS_TIME,
 
-	syscall.SYS_RT_SIGPROCMASK, syscall.SYS_SIGALTSTACK, SYS_GETRANDOM,
+	syscall.SYS_RT_SIGPROCMASK, syscall.SYS_SIGALTSTACK, SYS_GETRANDOM, SYS_PPOLL,
 }
 
 var ALLOW_ERROR_SYSCALLS = []int{
 	syscall.SYS_CLONE,
 	syscall.SYS_MKDIRAT,
 	syscall.SYS_MKDIR,
+	syscall.SYS_SOCKET,
 }
 
 var ALLOW_NETWORK_SYSCALLS = []int{
 	syscall.SYS_SOCKET, syscall.SYS_CONNECT, syscall.SYS_BIND, syscall.SYS_LISTEN, syscall.SYS_ACCEPT, syscall.SYS_SENDTO, syscall.SYS_RECVFROM,
-	syscall.SYS_GETSOCKNAME, syscall.SYS_RECVMSG, syscall.SYS_GETPEERNAME, syscall.SYS_SETSOCKOPT, syscall.SYS_PPOLL, syscall.SYS_UNAME,
 	syscall.SYS_SENDMSG, SYS_SENDMMSG, syscall.SYS_GETSOCKOPT,
-	syscall.SYS_FSTAT, syscall.SYS_FCNTL, syscall.SYS_FSTATFS, syscall.SYS_POLL, syscall.SYS_EPOLL_PWAIT,
+	syscall.SYS_POLL, syscall.SYS_EPOLL_PWAIT, SYS_EPOLL_PWAIT2, SYS_EPOLL_WAIT,
 }
