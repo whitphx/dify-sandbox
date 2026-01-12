@@ -27,12 +27,17 @@ func initConfig() {
 	log.Info("runner dependencies init success")
 
 	// Init storage
-	storageBaseDir := static.GetDifySandboxGlobalConfigurations().StoragePath
+	config := static.GetDifySandboxGlobalConfigurations()
+	storageBaseDir := config.StoragePath
 	if storageBaseDir == "" {
 		storageBaseDir = "data/sandbox"
 	}
 	storage.InitStorage(storageBaseDir)
 	log.Info("storage init success")
+
+	// Start cleanup worker
+	storage.StartCleanupWorker(config.FileCleanupInterval, config.FileTTL)
+	log.Info("file cleanup worker started (interval: %s, default TTL: %ds)", config.FileCleanupInterval, config.FileTTL)
 }
 
 func initServer() {

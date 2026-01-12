@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/langgenius/dify-sandbox/internal/storage"
@@ -17,6 +18,18 @@ func UploadFile(c *gin.Context) {
 		return
 	}
 
+	// Parse optional TTL parameter (in seconds)
+	// 0 or empty means use server default
+	var ttlSeconds int
+	ttlStr := c.PostForm("ttl")
+	if ttlStr != "" {
+		ttlSeconds, err = strconv.Atoi(ttlStr)
+		if err != nil || ttlSeconds < 0 {
+			c.JSON(http.StatusBadRequest, types.ErrorResponse(400, "ttl must be a non-negative integer"))
+			return
+		}
+	}
+
 	f, err := fileHeader.Open()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, types.ErrorResponse(500, "failed to open file"))
@@ -25,12 +38,7 @@ func UploadFile(c *gin.Context) {
 	defer f.Close()
 
 	store := storage.GetStorage()
-	// Use original filename? Or just store content?
-	// storage.Put takes (reader, filename).
-	// The specific filename implementation in LocalStorage uses it for extension perhaps?
-	// LocalStorage currently ignores the filename arg for path generation, only generating a UUID.
-	// But let's pass it anyway.
-	fileId, err := store.Put(f, fileHeader.Filename)
+	fileId, err := store.PutWithTTL(f, fileHeader.Filename, ttlSeconds)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, types.ErrorResponse(500, fmt.Sprintf("failed to save file: %v", err)))
 		return

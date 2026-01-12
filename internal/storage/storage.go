@@ -1,18 +1,32 @@
 package storage
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 )
 
+// FileMetadata stores metadata about an uploaded file
+type FileMetadata struct {
+	CreatedAt int64  `json:"created_at"` // Unix timestamp
+	ExpiresAt int64  `json:"expires_at"` // Unix timestamp, 0 = use global default
+	Filename  string `json:"filename"`   // Original filename
+}
+
 type Storage interface {
 	Put(reader io.Reader, filename string) (string, error)
+	PutWithTTL(reader io.Reader, filename string, ttlSeconds int) (string, error)
 	Get(fileId string) (io.ReadCloser, error)
+	GetMetadata(fileId string) (*FileMetadata, error)
+	Delete(fileId string) error
+	List() ([]string, error)
+	IsExpired(fileId string, defaultTTL int) (bool, error)
 }
 
 type LocalStorage struct {
@@ -27,6 +41,11 @@ func NewLocalStorage(baseDir string) (*LocalStorage, error) {
 }
 
 func (s *LocalStorage) Put(reader io.Reader, filename string) (string, error) {
+	// Delegate to PutWithTTL with TTL=0 (use global default)
+	return s.PutWithTTL(reader, filename, 0)
+}
+
+func (s *LocalStorage) PutWithTTL(reader io.Reader, filename string, ttlSeconds int) (string, error) {
 	// Generate a unique ID for the file
 	fileId := uuid.New().String()
 	// Create a directory for the file (shard by date to avoid huge directories)
@@ -36,19 +55,8 @@ func (s *LocalStorage) Put(reader io.Reader, filename string) (string, error) {
 		return "", err
 	}
 
-	// Calculate full path
-	// Storing as ID_filename to keep it simple and preserving extension/name if needed
-	// Or simpler: just store by ID, and keep metadata elsewhere?
-	// For MVP, lets treat the ID as the key.
-	// Actually, storing as `date/id` is good.
-
-	// Let's return "date/id" as the reference key? Or just a long UUID?
-	// Let's use "date/id" as the logical key returned to client? No, safer to return opaque ID.
-	// Let's store a mapping? No, that requires DB.
-
 	// Stateless approach: Return the relative path as the ID.
 	// ID = "20231027/uuid"
-
 	relPath := filepath.Join(dateDir, fileId)
 	fullPath := filepath.Join(s.BaseDir, relPath)
 
@@ -60,6 +68,33 @@ func (s *LocalStorage) Put(reader io.Reader, filename string) (string, error) {
 
 	_, err = io.Copy(f, reader)
 	if err != nil {
+		return "", err
+	}
+
+	// Create metadata sidecar file
+	now := time.Now().Unix()
+	var expiresAt int64
+	if ttlSeconds > 0 {
+		expiresAt = now + int64(ttlSeconds)
+	}
+	metadata := FileMetadata{
+		CreatedAt: now,
+		ExpiresAt: expiresAt,
+		Filename:  filename,
+	}
+
+	metaPath := fullPath + ".meta.json"
+	metaFile, err := os.Create(metaPath)
+	if err != nil {
+		// Clean up the data file if metadata creation fails
+		os.Remove(fullPath)
+		return "", err
+	}
+	defer metaFile.Close()
+
+	if err := json.NewEncoder(metaFile).Encode(&metadata); err != nil {
+		os.Remove(fullPath)
+		os.Remove(metaPath)
 		return "", err
 	}
 
@@ -80,4 +115,109 @@ func (s *LocalStorage) Get(fileId string) (io.ReadCloser, error) {
 		return nil, err
 	}
 	return f, nil
+}
+
+func (s *LocalStorage) GetMetadata(fileId string) (*FileMetadata, error) {
+	cleanPath := filepath.Clean(fileId)
+	if cleanPath == "." || cleanPath == "/" {
+		return nil, fmt.Errorf("invalid file id")
+	}
+
+	metaPath := filepath.Join(s.BaseDir, cleanPath) + ".meta.json"
+	metaFile, err := os.Open(metaPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// Legacy file without metadata - return nil metadata (not an error)
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer metaFile.Close()
+
+	var metadata FileMetadata
+	if err := json.NewDecoder(metaFile).Decode(&metadata); err != nil {
+		return nil, err
+	}
+
+	return &metadata, nil
+}
+
+func (s *LocalStorage) Delete(fileId string) error {
+	cleanPath := filepath.Clean(fileId)
+	if cleanPath == "." || cleanPath == "/" {
+		return fmt.Errorf("invalid file id")
+	}
+
+	fullPath := filepath.Join(s.BaseDir, cleanPath)
+
+	// Delete the data file
+	if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	// Delete the metadata file if it exists
+	metaPath := fullPath + ".meta.json"
+	os.Remove(metaPath) // Ignore error - metadata may not exist
+
+	return nil
+}
+
+func (s *LocalStorage) List() ([]string, error) {
+	var fileIds []string
+
+	err := filepath.Walk(s.BaseDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Skip directories and metadata files
+		if info.IsDir() || strings.HasSuffix(path, ".meta.json") {
+			return nil
+		}
+
+		// Get relative path from base directory
+		relPath, err := filepath.Rel(s.BaseDir, path)
+		if err != nil {
+			return err
+		}
+
+		fileIds = append(fileIds, relPath)
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return fileIds, nil
+}
+
+func (s *LocalStorage) IsExpired(fileId string, defaultTTL int) (bool, error) {
+	metadata, err := s.GetMetadata(fileId)
+	if err != nil {
+		return false, err
+	}
+
+	now := time.Now().Unix()
+
+	if metadata == nil {
+		// Legacy file without metadata
+		// Check file modification time and apply default TTL
+		cleanPath := filepath.Clean(fileId)
+		fullPath := filepath.Join(s.BaseDir, cleanPath)
+		info, err := os.Stat(fullPath)
+		if err != nil {
+			return false, err
+		}
+		createdAt := info.ModTime().Unix()
+		return now > createdAt+int64(defaultTTL), nil
+	}
+
+	// If ExpiresAt is set, use it
+	if metadata.ExpiresAt > 0 {
+		return now > metadata.ExpiresAt, nil
+	}
+
+	// Otherwise, use default TTL from creation time
+	return now > metadata.CreatedAt+int64(defaultTTL), nil
 }

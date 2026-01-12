@@ -15,6 +15,8 @@ type DifySandboxGlobalConfigurations struct {
 	PythonDepsUpdateInterval string   `yaml:"python_deps_update_interval"`
 	NodejsPath               string   `yaml:"nodejs_path"`
 	StoragePath              string   `yaml:"storage_path"`
+	FileTTL                  int      `yaml:"file_ttl"`              // File TTL in seconds, default 3600
+	FileCleanupInterval      string   `yaml:"file_cleanup_interval"` // Cleanup interval, default "5m"
 	EnableNetwork            bool     `yaml:"enable_network"`
 	EnablePreload            bool     `yaml:"enable_preload"`
 	AllowedSyscalls          []int    `yaml:"allowed_syscalls"`

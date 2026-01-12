@@ -102,6 +102,33 @@ func InitConfig(path string) error {
 		difySandboxGlobalConfigurations.NodejsPath = "/usr/local/bin/node"
 	}
 
+	storage_path := os.Getenv("STORAGE_PATH")
+	if storage_path != "" {
+		difySandboxGlobalConfigurations.StoragePath = storage_path
+	}
+
+	if difySandboxGlobalConfigurations.StoragePath == "" {
+		difySandboxGlobalConfigurations.StoragePath = "/var/sandbox/storage"
+	}
+
+	file_ttl := os.Getenv("FILE_TTL")
+	if file_ttl != "" {
+		difySandboxGlobalConfigurations.FileTTL, _ = strconv.Atoi(file_ttl)
+	}
+
+	if difySandboxGlobalConfigurations.FileTTL == 0 {
+		difySandboxGlobalConfigurations.FileTTL = 3600 // Default: 1 hour
+	}
+
+	file_cleanup_interval := os.Getenv("FILE_CLEANUP_INTERVAL")
+	if file_cleanup_interval != "" {
+		difySandboxGlobalConfigurations.FileCleanupInterval = file_cleanup_interval
+	}
+
+	if difySandboxGlobalConfigurations.FileCleanupInterval == "" {
+		difySandboxGlobalConfigurations.FileCleanupInterval = "5m"
+	}
+
 	enable_network := os.Getenv("ENABLE_NETWORK")
 	if enable_network != "" {
 		difySandboxGlobalConfigurations.EnableNetwork, _ = strconv.ParseBool(enable_network)

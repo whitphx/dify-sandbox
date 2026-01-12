@@ -1,4 +1,10 @@
-import { SandboxResponse, RunCodeResponse, RunOptions, UploadFileResponse } from './types';
+import {
+  SandboxResponse,
+  RunCodeResponse,
+  RunOptions,
+  UploadFileResponse,
+  UploadFileOptions,
+} from './types';
 
 export class SandboxClient {
   private baseUrl: string;
@@ -48,14 +54,22 @@ export class SandboxClient {
 
   /**
    * Upload a file to the sandbox storage.
-   * @param file Blob, File, Buffer or Stream. If running in Node.js and passing a Buffer, provide filename in options implicitly if possible, or use FormData construction manually?
-   * Ideally we accept a FormData compatible object or create one.
-   * For Node.js `fetch` with `FormData`:
-   * Native fetch in Node 20+ supports FormData.
+   * @param file Blob or File to upload
+   * @param filename Optional filename for the file
+   * @param options Optional upload options (e.g., TTL)
    */
-  async uploadFile(file: File | Blob, filename?: string): Promise<{ file_id: string }> {
+  async uploadFile(
+    file: File | Blob,
+    filename?: string,
+    options?: UploadFileOptions
+  ): Promise<{ file_id: string }> {
     const formData = new FormData();
     formData.append('file', file, filename); // 'file' is the field name expected by Gin
+
+    // Add TTL if specified
+    if (options?.ttl !== undefined && options.ttl > 0) {
+      formData.append('ttl', options.ttl.toString());
+    }
 
     const result = await this.request<UploadFileResponse>('/v1/sandbox/files', {
       method: 'POST',

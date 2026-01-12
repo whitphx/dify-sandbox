@@ -3,20 +3,24 @@ package storage
 import (
 	"log"
 	"sync"
+	"time"
 )
 
 var (
-	GlobalStorage Storage
-	once          sync.Once
+	GlobalStorage       Storage
+	globalLocalStorage  *LocalStorage
+	globalCleanupWorker *CleanupWorker
+	once                sync.Once
 )
 
 func InitStorage(baseDir string) {
 	once.Do(func() {
 		var err error
-		GlobalStorage, err = NewLocalStorage(baseDir)
+		globalLocalStorage, err = NewLocalStorage(baseDir)
 		if err != nil {
 			log.Fatalf("failed to init storage: %v", err)
 		}
+		GlobalStorage = globalLocalStorage
 	})
 }
 
@@ -25,4 +29,27 @@ func GetStorage() Storage {
 		InitStorage("data/sandbox") // Default fallback
 	}
 	return GlobalStorage
+}
+
+// StartCleanupWorker starts the background cleanup worker
+func StartCleanupWorker(intervalStr string, defaultTTL int) {
+	if globalLocalStorage == nil {
+		log.Fatalf("storage not initialized, cannot start cleanup worker")
+	}
+
+	interval, err := time.ParseDuration(intervalStr)
+	if err != nil {
+		log.Printf("invalid cleanup interval %s, using default 5m: %v", intervalStr, err)
+		interval = 5 * time.Minute
+	}
+
+	globalCleanupWorker = NewCleanupWorker(globalLocalStorage, interval, defaultTTL)
+	globalCleanupWorker.Start()
+}
+
+// StopCleanupWorker stops the cleanup worker (for graceful shutdown)
+func StopCleanupWorker() {
+	if globalCleanupWorker != nil {
+		globalCleanupWorker.Stop()
+	}
 }

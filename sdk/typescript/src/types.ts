@@ -20,3 +20,8 @@ export interface RunOptions {
 export interface UploadFileResponse {
   file_id: string;
 }
+
+export interface UploadFileOptions {
+  /** TTL in seconds. 0 or undefined = use server default */
+  ttl?: number;
+}
