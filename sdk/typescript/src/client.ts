@@ -1,6 +1,5 @@
 import { SandboxResponse, RunCodeResponse, RunOptions, UploadFileResponse } from './types';
 
-
 export class SandboxClient {
   private baseUrl: string;
   private apiKey: string;
@@ -27,20 +26,20 @@ export class SandboxClient {
       try {
         const json = (await response.json()) as SandboxResponse<T>;
         if (json.code !== 0) {
-          let msg = json.message || 'Unknown error'; // Types.ts says it has message.
+          const msg = json.message || 'Unknown error'; // Types.ts says it has message.
           errorMsg = `Sandbox API error (${json.code}): ${msg}`;
         } else if (json.message) {
           errorMsg = `Request failed with status ${response.status}: ${json.message}`;
         }
-      } catch (e) {
-        // If response is not JSON
+      } catch {
+        // If response is not JSON, use the default error message
       }
       throw new Error(errorMsg);
     }
 
     const json = (await response.json()) as SandboxResponse<T>;
     if (json.code !== 0) {
-      let msg = json.message || 'Unknown error';
+      const msg = json.message || 'Unknown error';
       throw new Error(`Sandbox API error (${json.code}): ${msg}`);
     }
 
@@ -54,7 +53,7 @@ export class SandboxClient {
    * For Node.js `fetch` with `FormData`:
    * Native fetch in Node 20+ supports FormData.
    */
-  async uploadFile(file: File | Blob | any, filename?: string): Promise<{ file_id: string }> {
+  async uploadFile(file: File | Blob, filename?: string): Promise<{ file_id: string }> {
     const formData = new FormData();
     formData.append('file', file, filename); // 'file' is the field name expected by Gin
 

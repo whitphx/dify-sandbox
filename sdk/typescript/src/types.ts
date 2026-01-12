@@ -1,4 +1,4 @@
-export interface SandboxResponse<T = any> {
+export interface SandboxResponse<T = unknown> {
   code: number;
   message: string;
   data: T;

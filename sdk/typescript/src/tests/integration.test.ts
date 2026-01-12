@@ -1,6 +1,4 @@
 import { SandboxClient } from '../client';
-import fs from 'fs';
-import path from 'path';
 
 // Helper to create a Blob from string (Node 18+)
 function createBlob(content: string): Blob {
@@ -37,7 +35,7 @@ with open('sdk_output.txt', 'w') as f:
 `;
     const runResp = await client.runPython(pythonCode, {
       input_files: { 'sdk_test.txt': fileId },
-      fetch_files: ['sdk_output.txt']
+      fetch_files: ['sdk_output.txt'],
     });
     console.log('Run response:', runResp);
 
