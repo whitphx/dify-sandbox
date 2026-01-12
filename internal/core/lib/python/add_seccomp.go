@@ -41,6 +41,7 @@ func InitSeccomp(uid int, gid int, enable_network bool) error {
 		}
 	} else {
 		allowed_syscalls = append(allowed_syscalls, python_syscall.ALLOW_SYSCALLS...)
+		allowed_syscalls = append(allowed_syscalls, python_syscall.ALLOW_FILE_SYSCALLS...)
 		if enable_network {
 			allowed_syscalls = append(allowed_syscalls, python_syscall.ALLOW_NETWORK_SYSCALLS...)
 		}

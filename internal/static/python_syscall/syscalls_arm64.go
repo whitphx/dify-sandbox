@@ -20,11 +20,13 @@ const (
 	SYS_RESTART_SYSCALL = 128
 )
 
-var ALLOW_SYSCALLS = []int{
-	// file io
+var ALLOW_FILE_SYSCALLS = []int{
 	syscall.SYS_WRITE, syscall.SYS_CLOSE, syscall.SYS_OPENAT, syscall.SYS_READ, syscall.SYS_LSEEK, syscall.SYS_GETDENTS64, syscall.SYS_WRITEV,
 	syscall.SYS_CHDIR, syscall.SYS_FSTAT, syscall.SYS_FCNTL, syscall.SYS_PIPE2,
 	syscall.SYS_DUP, syscall.SYS_DUP2, syscall.SYS_DUP3, SYS_GETCWD, SYS_READLINKAT, SYS_STATX, SYS_FACCESSAT2, SYS_EVENTFD2,
+}
+
+var ALLOW_SYSCALLS = []int{
 
 	// thread
 	syscall.SYS_FUTEX, SYS_CLONE3, SYS_RESTART_SYSCALL,
