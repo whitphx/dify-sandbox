@@ -23,7 +23,9 @@ const (
 var ALLOW_FILE_SYSCALLS = []int{
 	syscall.SYS_WRITE, syscall.SYS_CLOSE, syscall.SYS_OPENAT, syscall.SYS_READ, syscall.SYS_LSEEK, syscall.SYS_GETDENTS64, syscall.SYS_WRITEV,
 	syscall.SYS_CHDIR, syscall.SYS_FSTAT, syscall.SYS_FCNTL, syscall.SYS_PIPE2,
-	syscall.SYS_DUP, syscall.SYS_DUP2, syscall.SYS_DUP3, SYS_GETCWD, SYS_READLINKAT, SYS_STATX, SYS_FACCESSAT2, SYS_EVENTFD2,
+	syscall.SYS_DUP, syscall.SYS_DUP3, SYS_GETCWD, SYS_READLINKAT, SYS_STATX, SYS_FACCESSAT2, SYS_EVENTFD2,
+	syscall.SYS_FACCESSAT, syscall.SYS_FSTATAT, syscall.SYS_IOCTL,
+	syscall.SYS_GETXATTR, syscall.SYS_LGETXATTR, syscall.SYS_FGETXATTR, syscall.SYS_FLOCK,
 }
 
 var ALLOW_SYSCALLS = []int{
@@ -47,7 +49,7 @@ var ALLOW_SYSCALLS = []int{
 	SYS_RSEQ, syscall.SYS_PRLIMIT64, syscall.SYS_SYSINFO,
 	syscall.SYS_SET_TID_ADDRESS,
 	syscall.SYS_GETEUID, syscall.SYS_GETEGID, syscall.SYS_GETRESUID, syscall.SYS_GETRESGID,
-	syscall.SYS_PRCTL, syscall.SYS_SCHED_GETAFFINITY, syscall.SYS_FADVISE64, syscall.SYS_READLINK,
+	syscall.SYS_PRCTL, syscall.SYS_SCHED_GETAFFINITY, syscall.SYS_FADVISE64,
 	syscall.SYS_UNAME, syscall.SYS_FSTATFS, syscall.SYS_FACCESSAT,
 
 	// time
@@ -73,4 +75,3 @@ var ALLOW_NETWORK_SYSCALLS = []int{
 	syscall.SYS_GETSOCKNAME, 	syscall.SYS_SENDMSG, SYS_SENDMMSG, syscall.SYS_GETSOCKOPT,
 	syscall.SYS_FSTATAT,
 }
-```

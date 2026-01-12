@@ -3,13 +3,14 @@ ARG GOLANG_VERSION=1.24.9
 
 # Builder stage
 FROM golang:${GOLANG_VERSION} AS builder
+ARG TARGETARCH
 WORKDIR /app
 COPY . /app
 RUN apt-get update && apt-get install -y pkg-config gcc libseccomp-dev
 RUN touch internal/core/runner/python/python.so \
     && touch internal/core/runner/nodejs/nodejs.so \
     && go mod tidy
-RUN bash ./build/build_amd64.sh
+RUN bash ./build/build_${TARGETARCH}.sh
 
 # Runtime stage
 FROM ${BASE_IMAGE} AS runner
