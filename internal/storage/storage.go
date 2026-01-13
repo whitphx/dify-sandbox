@@ -222,11 +222,7 @@ func (s *LocalStorage) List() ([]string, error) {
 }
 
 func (s *LocalStorage) IsExpired(fileId string, defaultTTL int) (bool, error) {
-	fullPath, err := s.validatePath(fileId)
-	if err != nil {
-		return false, err
-	}
-
+	// GetMetadata already validates the path internally
 	metadata, err := s.GetMetadata(fileId)
 	if err != nil {
 		return false, err
@@ -237,6 +233,10 @@ func (s *LocalStorage) IsExpired(fileId string, defaultTTL int) (bool, error) {
 	if metadata == nil {
 		// Legacy file without metadata
 		// Check file modification time and apply default TTL
+		fullPath, err := s.validatePath(fileId)
+		if err != nil {
+			return false, err
+		}
 		info, err := os.Stat(fullPath)
 		if err != nil {
 			return false, err

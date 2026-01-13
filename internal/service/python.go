@@ -90,17 +90,10 @@ func RunPython3Code(code string, preload string, enableNetwork bool, inputFiles 
 	for {
 		select {
 		case <-done:
-			// Process is done. Drain any remaining stdout/stderr and get files.
-			// Give filesChan a moment to receive data if not yet available.
+			// Process is done. The AfterExitHook runs BEFORE done is signaled,
+			// so filesChan is guaranteed to have data (or be closed).
 			if files == nil {
-				select {
-				case f, ok := <-filesChan:
-					if ok {
-						files = f
-					}
-				case <-time.After(100 * time.Millisecond):
-					// Timeout waiting for files, continue with what we have
-				}
+				files = <-filesChan
 			}
 			return types.SuccessResponse(&RunCodeResponse{
 				Stdout: stdout_str,
