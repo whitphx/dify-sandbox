@@ -37,7 +37,41 @@ func NewLocalStorage(baseDir string) (*LocalStorage, error) {
 	if err := os.MkdirAll(baseDir, 0755); err != nil {
 		return nil, err
 	}
-	return &LocalStorage{BaseDir: baseDir}, nil
+	// Store absolute path for secure comparisons
+	absBaseDir, err := filepath.Abs(baseDir)
+	if err != nil {
+		return nil, err
+	}
+	return &LocalStorage{BaseDir: absBaseDir}, nil
+}
+
+// validatePath checks that a file ID doesn't escape the base directory
+// Returns the safe absolute path or an error
+func (s *LocalStorage) validatePath(fileId string) (string, error) {
+	// Reject obviously malicious patterns
+	if strings.Contains(fileId, "..") {
+		return "", fmt.Errorf("invalid file id: contains path traversal")
+	}
+
+	cleanPath := filepath.Clean(fileId)
+	if cleanPath == "." || cleanPath == "/" || cleanPath == "" {
+		return "", fmt.Errorf("invalid file id")
+	}
+
+	fullPath := filepath.Join(s.BaseDir, cleanPath)
+
+	// Get absolute path and verify it's within BaseDir
+	absPath, err := filepath.Abs(fullPath)
+	if err != nil {
+		return "", fmt.Errorf("invalid file id: %w", err)
+	}
+
+	// Ensure the path is within BaseDir (with trailing separator to prevent prefix attacks)
+	if !strings.HasPrefix(absPath, s.BaseDir+string(filepath.Separator)) && absPath != s.BaseDir {
+		return "", fmt.Errorf("invalid file id: path escapes storage directory")
+	}
+
+	return absPath, nil
 }
 
 func (s *LocalStorage) Put(reader io.Reader, filename string) (string, error) {
@@ -102,14 +136,11 @@ func (s *LocalStorage) PutWithTTL(reader io.Reader, filename string, ttlSeconds 
 }
 
 func (s *LocalStorage) Get(fileId string) (io.ReadCloser, error) {
-	// Validate fileId to prevent directory traversal
-	// fileId should generally be "date/uuid"
-	cleanPath := filepath.Clean(fileId)
-	if cleanPath == "." || cleanPath == "/" {
-		return nil, fmt.Errorf("invalid file id")
+	fullPath, err := s.validatePath(fileId)
+	if err != nil {
+		return nil, err
 	}
 
-	fullPath := filepath.Join(s.BaseDir, cleanPath)
 	f, err := os.Open(fullPath)
 	if err != nil {
 		return nil, err
@@ -118,12 +149,12 @@ func (s *LocalStorage) Get(fileId string) (io.ReadCloser, error) {
 }
 
 func (s *LocalStorage) GetMetadata(fileId string) (*FileMetadata, error) {
-	cleanPath := filepath.Clean(fileId)
-	if cleanPath == "." || cleanPath == "/" {
-		return nil, fmt.Errorf("invalid file id")
+	fullPath, err := s.validatePath(fileId)
+	if err != nil {
+		return nil, err
 	}
 
-	metaPath := filepath.Join(s.BaseDir, cleanPath) + ".meta.json"
+	metaPath := fullPath + ".meta.json"
 	metaFile, err := os.Open(metaPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -143,12 +174,10 @@ func (s *LocalStorage) GetMetadata(fileId string) (*FileMetadata, error) {
 }
 
 func (s *LocalStorage) Delete(fileId string) error {
-	cleanPath := filepath.Clean(fileId)
-	if cleanPath == "." || cleanPath == "/" {
-		return fmt.Errorf("invalid file id")
+	fullPath, err := s.validatePath(fileId)
+	if err != nil {
+		return err
 	}
-
-	fullPath := filepath.Join(s.BaseDir, cleanPath)
 
 	// Delete the data file
 	if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
@@ -193,6 +222,11 @@ func (s *LocalStorage) List() ([]string, error) {
 }
 
 func (s *LocalStorage) IsExpired(fileId string, defaultTTL int) (bool, error) {
+	fullPath, err := s.validatePath(fileId)
+	if err != nil {
+		return false, err
+	}
+
 	metadata, err := s.GetMetadata(fileId)
 	if err != nil {
 		return false, err
@@ -203,8 +237,6 @@ func (s *LocalStorage) IsExpired(fileId string, defaultTTL int) (bool, error) {
 	if metadata == nil {
 		// Legacy file without metadata
 		// Check file modification time and apply default TTL
-		cleanPath := filepath.Clean(fileId)
-		fullPath := filepath.Join(s.BaseDir, cleanPath)
 		info, err := os.Stat(fullPath)
 		if err != nil {
 			return false, err

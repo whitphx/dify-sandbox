@@ -64,7 +64,7 @@ func RunPython3Code(code string, preload string, enableNetwork bool, inputFiles 
 	}
 
 	if !static.GetDifySandboxGlobalConfigurations().EnablePreload {
-	    preload = ""
+		preload = ""
 	}
 
 	timeout := time.Duration(
@@ -82,24 +82,24 @@ func RunPython3Code(code string, preload string, enableNetwork bool, inputFiles 
 
 	stdout_str := ""
 	stderr_str := ""
-    var files map[string]string
+	var files map[string]string
 
-	defer close(done)
-	defer close(stdout)
-	defer close(stderr)
-    // filesChan is closed by runner
+	// Note: We do NOT close done, stdout, stderr channels - they are owned by the runner.
+	// filesChan is closed by runner after writing files.
 
 	for {
 		select {
 		case <-done:
-			// Attempt to read files if available and not yet read
-			if files == nil && filesChan != nil {
+			// Process is done. Drain any remaining stdout/stderr and get files.
+			// Give filesChan a moment to receive data if not yet available.
+			if files == nil {
 				select {
 				case f, ok := <-filesChan:
 					if ok {
 						files = f
 					}
-				default:
+				case <-time.After(100 * time.Millisecond):
+					// Timeout waiting for files, continue with what we have
 				}
 			}
 			return types.SuccessResponse(&RunCodeResponse{
@@ -107,10 +107,14 @@ func RunPython3Code(code string, preload string, enableNetwork bool, inputFiles 
 				Stderr: stderr_str,
 				Files:  files,
 			})
-		case out := <-stdout:
-			stdout_str += string(out)
-		case err := <-stderr:
-			stderr_str += string(err)
+		case out, ok := <-stdout:
+			if ok {
+				stdout_str += string(out)
+			}
+		case errOut, ok := <-stderr:
+			if ok {
+				stderr_str += string(errOut)
+			}
 		case f, ok := <-filesChan:
 			if ok {
 				files = f

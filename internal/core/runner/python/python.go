@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -52,18 +53,31 @@ func (p *PythonRunner) Run(
 		files := make(map[string]string)
 		if options != nil && len(options.FetchFiles) > 0 {
 			runDir := path.Dir(untrusted_code_path)
-			for _, filename := range options.FetchFiles {
-				filePath := path.Join(runDir, filename)
-				// ensure strict path safety
-				if !strings.HasPrefix(path.Clean(filePath), runDir) {
-					continue
-				}
+			// Get absolute path for secure comparison
+			absRunDir, err := filepath.Abs(runDir)
+			if err == nil {
+				for _, filename := range options.FetchFiles {
+					// Reject filenames with path traversal patterns
+					if strings.Contains(filename, "..") {
+						continue
+					}
+					filePath := filepath.Join(absRunDir, filename)
+					// Get absolute path and verify it's within runDir
+					absFilePath, err := filepath.Abs(filePath)
+					if err != nil {
+						continue
+					}
+					// Ensure the path is within runDir (with trailing separator to prevent prefix attacks)
+					if !strings.HasPrefix(absFilePath, absRunDir+string(filepath.Separator)) {
+						continue
+					}
 
-				// Call OutputHandler if present
-				if options.OutputHandler != nil {
-					fileId, err := options.OutputHandler(filename, filePath)
-					if err == nil {
-						files[filename] = fileId
+					// Call OutputHandler if present
+					if options.OutputHandler != nil {
+						fileId, err := options.OutputHandler(filename, absFilePath)
+						if err == nil {
+							files[filename] = fileId
+						}
 					}
 				}
 			}
@@ -75,14 +89,10 @@ func (p *PythonRunner) Run(
 		os.RemoveAll(path.Dir(untrusted_code_path))
 	})
 
-     // ... (rest is unchanged essentially, just returning the channel)
-    // but the rest of the function needs to be checked for `return` statements that need update.
-
-    // calculate runDir from untrusted_code_path
-    runDir := path.Dir(untrusted_code_path)
-    // ...
-    runID := path.Base(runDir)
-    relRunDir := path.Join("tmp", runID)
+	// calculate runDir from untrusted_code_path
+	runDir := path.Dir(untrusted_code_path)
+	runID := path.Base(runDir)
+	relRunDir := path.Join("tmp", runID)
 
 	// create a new process
 	cmd := exec.Command(
@@ -145,24 +155,38 @@ func (p *PythonRunner) InitializeEnvironment(code string, preload string, option
 		return "", "", err
 	}
 
-    // Change ownership of the run directory to the sandbox user so they can write files
-    err = os.Chown(runDir, static.SANDBOX_USER_UID, static.SANDBOX_GROUP_ID)
-    if err != nil {
-        // return "", "", err
-    }
+	// Change ownership of the run directory to the sandbox user so they can write files
+	// Log but don't fail if this fails (chown may fail in non-root environments or certain container setups)
+	if err := os.Chown(runDir, static.SANDBOX_USER_UID, static.SANDBOX_GROUP_ID); err != nil {
+		fmt.Printf("WARNING: failed to chown run directory %s: %v\n", runDir, err)
+	}
 
 	// Write uploaded files
 	if options.InputFiles != nil {
+		// Get absolute path for secure comparison
+		absRunDir, err := filepath.Abs(runDir)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to get absolute run directory: %w", err)
+		}
 		for filename, reader := range options.InputFiles {
-			filePath := path.Join(runDir, filename)
-			// ensure strict path safety to prevent directory traversal
-			if !strings.HasPrefix(path.Clean(filePath), runDir) {
+			// Reject filenames with path traversal patterns
+			if strings.Contains(filename, "..") {
+				continue
+			}
+			filePath := filepath.Join(absRunDir, filename)
+			// Get absolute path and verify it's within runDir
+			absFilePath, err := filepath.Abs(filePath)
+			if err != nil {
+				continue
+			}
+			// Ensure the path is within runDir (with trailing separator to prevent prefix attacks)
+			if !strings.HasPrefix(absFilePath, absRunDir+string(filepath.Separator)) {
 				continue
 			}
 			// Ensure parent dir exists
-			os.MkdirAll(path.Dir(filePath), 0755)
+			os.MkdirAll(filepath.Dir(absFilePath), 0755)
 
-			f, err := os.Create(filePath)
+			f, err := os.Create(absFilePath)
 			if err != nil {
 				return "", "", err
 			}
@@ -172,14 +196,13 @@ func (p *PythonRunner) InitializeEnvironment(code string, preload string, option
 				return "", "", err
 			}
 
-			// Also chown the file
-			os.Chown(filePath, static.SANDBOX_USER_UID, static.SANDBOX_GROUP_ID)
+			// Also chown the file - log but don't fail if this fails
+			// (chown may fail in non-root environments or certain container setups)
+			if err := os.Chown(absFilePath, static.SANDBOX_USER_UID, static.SANDBOX_GROUP_ID); err != nil {
+				fmt.Printf("WARNING: failed to chown %s: %v\n", absFilePath, err)
+			}
 		}
 	}
-
-    // ... (rest of InitializeEnvironment)
-
-
 
 	script := strings.Replace(
 		string(sandbox_fs),
@@ -236,7 +259,7 @@ func (p *PythonRunner) InitializeEnvironment(code string, preload string, option
 		1,
 	)
 
-    // Write the prescript (untrusted code) to the run directory
+	// Write the prescript (untrusted code) to the run directory
 	untrusted_code_path := path.Join(runDir, fmt.Sprintf("%s.py", temp_code_name))
 	err = os.WriteFile(untrusted_code_path, []byte(code), 0755)
 	if err != nil {

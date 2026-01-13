@@ -1,6 +1,7 @@
 package python
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -12,16 +13,21 @@ import (
 
 //var allow_syscalls = []int{}
 
+// InitSeccomp initializes the security sandbox using seccomp syscall filtering
+// and privilege dropping.
+//
+// Security model:
+// 1. NO_NEW_PRIVS - prevents privilege escalation through setuid binaries
+// 2. Seccomp - whitelists only required syscalls, kills process on violation
+// 3. setgid/setuid - drops to unprivileged user after setup
+//
+// Note: chroot is intentionally NOT used because:
+// - Chroot alone is not a security boundary (can be escaped with root or capabilities)
+// - Seccomp provides stronger syscall-level isolation
+// - Container-level namespaces (when running in Docker) provide filesystem isolation
+// - Chroot would require duplicating Python runtime into the jail
 func InitSeccomp(uid int, gid int, enable_network bool) error {
 	var err error
-	// err = syscall.Chroot(".")
-	// if err != nil {
-	// 	// return err
-	// }
-	// err = syscall.Chdir("/")
-	// if err != nil {
-	// 	// return err
-	// }
 
 	lib.SetNoNewPrivs()
 
@@ -52,16 +58,16 @@ func InitSeccomp(uid int, gid int, enable_network bool) error {
 		return err
 	}
 
-	// setgid
+	// setgid - critical security operation, must succeed
 	err = syscall.Setgid(gid)
 	if err != nil {
-		// return err
+		return fmt.Errorf("failed to setgid to %d: %w", gid, err)
 	}
 
-	// setuid
+	// setuid - critical security operation, must succeed
 	err = syscall.Setuid(uid)
 	if err != nil {
-		// return err
+		return fmt.Errorf("failed to setuid to %d: %w", uid, err)
 	}
 
 	return nil

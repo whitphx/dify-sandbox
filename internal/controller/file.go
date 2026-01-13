@@ -1,15 +1,39 @@
 package controller
 
 import (
-	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
+	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/langgenius/dify-sandbox/internal/storage"
 	"github.com/langgenius/dify-sandbox/internal/types"
 )
+
+// sanitizeFilename removes or replaces characters that could cause header injection
+// or other security issues in Content-Disposition headers
+func sanitizeFilename(filename string) string {
+	// Remove path components - only keep the base name
+	filename = filepath.Base(filename)
+
+	// Remove or replace dangerous characters for Content-Disposition
+	// This includes: newlines, carriage returns, quotes, backslashes, and other control chars
+	dangerous := regexp.MustCompile(`[\x00-\x1f\x7f"\\]`)
+	filename = dangerous.ReplaceAllString(filename, "_")
+
+	// Trim spaces and dots from edges (Windows safety)
+	filename = strings.Trim(filename, " .")
+
+	// If filename is empty after sanitization, use a default
+	if filename == "" {
+		filename = "download"
+	}
+
+	return filename
+}
 
 func UploadFile(c *gin.Context) {
 	fileHeader, err := c.FormFile("file")
@@ -69,7 +93,16 @@ func DownloadFile(c *gin.Context) {
 	}
 	defer reader.Close()
 
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileId))
+	// Try to get original filename from metadata, fall back to fileId base name
+	filename := filepath.Base(fileId) // default fallback
+	if metadata, err := store.GetMetadata(fileId); err == nil && metadata != nil && metadata.Filename != "" {
+		filename = metadata.Filename
+	}
+
+	// Sanitize filename to prevent header injection attacks
+	safeFilename := sanitizeFilename(filename)
+
+	c.Header("Content-Disposition", "attachment; filename=\""+safeFilename+"\"")
 	c.Header("Content-Type", "application/octet-stream")
 
 	_, err = io.Copy(c.Writer, reader)
