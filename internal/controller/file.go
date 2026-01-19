@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/langgenius/dify-sandbox/internal/static"
 	"github.com/langgenius/dify-sandbox/internal/storage"
 	"github.com/langgenius/dify-sandbox/internal/types"
 )
@@ -85,6 +87,24 @@ func DownloadFile(c *gin.Context) {
 	}
 
 	store := storage.GetStorage()
+	config := static.GetDifySandboxGlobalConfigurations()
+
+	// Check if file has expired before serving.
+	// This is part of the multi-container coordination strategy:
+	// - Readers reject expired files immediately at TTL
+	// - Cleanup workers delete files after TTL + grace period
+	// This ensures files are never deleted while being read, without requiring
+	// distributed file locks (which don't work reliably on NFS/shared storage).
+	expired, err := store.IsExpired(fileId, config.FileTTL)
+	if err != nil {
+		c.JSON(http.StatusNotFound, types.ErrorResponse(404, "file not found"))
+		return
+	}
+	if expired {
+		c.JSON(http.StatusGone, types.ErrorResponse(410, "file has expired"))
+		return
+	}
+
 	reader, err := store.Get(fileId)
 	if err != nil {
 		// Could be 404 or 500

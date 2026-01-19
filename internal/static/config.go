@@ -129,6 +129,15 @@ func InitConfig(path string) error {
 		difySandboxGlobalConfigurations.FileCleanupInterval = "5m"
 	}
 
+	file_cleanup_grace_period := os.Getenv("FILE_CLEANUP_GRACE_PERIOD")
+	if file_cleanup_grace_period != "" {
+		difySandboxGlobalConfigurations.FileCleanupGracePeriod, _ = strconv.Atoi(file_cleanup_grace_period)
+	}
+
+	if difySandboxGlobalConfigurations.FileCleanupGracePeriod == 0 {
+		difySandboxGlobalConfigurations.FileCleanupGracePeriod = 60 // Default: 1 minute
+	}
+
 	enable_network := os.Getenv("ENABLE_NETWORK")
 	if enable_network != "" {
 		difySandboxGlobalConfigurations.EnableNetwork, _ = strconv.ParseBool(enable_network)

@@ -8,19 +8,25 @@ import (
 
 // CleanupWorker handles periodic cleanup of expired files
 type CleanupWorker struct {
-	storage    *LocalStorage
-	interval   time.Duration
-	defaultTTL int
-	stopCh     chan struct{}
+	storage     *LocalStorage
+	interval    time.Duration
+	defaultTTL  int
+	gracePeriod int
+	stopCh      chan struct{}
 }
 
 // NewCleanupWorker creates a new cleanup worker
-func NewCleanupWorker(storage *LocalStorage, interval time.Duration, defaultTTL int) *CleanupWorker {
+//
+// The gracePeriod parameter is crucial for multi-container deployments (e.g., K8s).
+// See IsExpiredForCleanup() in storage.go for the full explanation of the
+// coordination strategy between readers and cleanup workers.
+func NewCleanupWorker(storage *LocalStorage, interval time.Duration, defaultTTL int, gracePeriod int) *CleanupWorker {
 	return &CleanupWorker{
-		storage:    storage,
-		interval:   interval,
-		defaultTTL: defaultTTL,
-		stopCh:     make(chan struct{}),
+		storage:     storage,
+		interval:    interval,
+		defaultTTL:  defaultTTL,
+		gracePeriod: gracePeriod,
+		stopCh:      make(chan struct{}),
 	}
 }
 
@@ -38,7 +44,8 @@ func (w *CleanupWorker) run() {
 	ticker := time.NewTicker(w.interval)
 	defer ticker.Stop()
 
-	log.Info("cleanup worker started with interval %v, default TTL %d seconds", w.interval, w.defaultTTL)
+	log.Info("cleanup worker started with interval %v, default TTL %d seconds, grace period %d seconds",
+		w.interval, w.defaultTTL, w.gracePeriod)
 
 	// Run cleanup immediately on start
 	w.cleanup()
@@ -65,7 +72,10 @@ func (w *CleanupWorker) cleanup() {
 	var errorCount int
 
 	for _, fileId := range fileIds {
-		expired, err := w.storage.IsExpired(fileId, w.defaultTTL)
+		// Use IsExpiredForCleanup which adds grace period.
+		// This ensures files are only deleted after TTL + gracePeriod,
+		// giving readers time to finish before deletion.
+		expired, err := w.storage.IsExpiredForCleanup(fileId, w.defaultTTL, w.gracePeriod)
 		if err != nil {
 			log.Error("cleanup worker failed to check expiration for %s: %v", fileId, err)
 			errorCount++

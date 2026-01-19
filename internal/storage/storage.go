@@ -27,6 +27,7 @@ type Storage interface {
 	Delete(fileId string) error
 	List() ([]string, error)
 	IsExpired(fileId string, defaultTTL int) (bool, error)
+	IsExpiredForCleanup(fileId string, defaultTTL int, gracePeriod int) (bool, error)
 }
 
 type LocalStorage struct {
@@ -252,4 +253,56 @@ func (s *LocalStorage) IsExpired(fileId string, defaultTTL int) (bool, error) {
 
 	// Otherwise, use default TTL from creation time
 	return now > metadata.CreatedAt+int64(defaultTTL), nil
+}
+
+// IsExpiredForCleanup checks if a file should be deleted by the cleanup worker.
+//
+// Multi-container coordination strategy:
+// In K8s environments with shared storage (NFS, EFS, etc.), multiple containers
+// may run cleanup workers simultaneously. Traditional file locking (flock) doesn't
+// work reliably across NFS mounts.
+//
+// Instead, we use a "grace period" approach:
+//   - Readers (Get) reject files immediately when TTL expires
+//   - Cleanup workers only delete files after TTL + gracePeriod
+//
+// Timeline:
+//
+//	Created -----> TTL expires -----> TTL + grace -----> Deleted
+//	                    |                  |
+//	               Reads rejected    Cleanup deletes
+//
+// This ensures no file is deleted while being read, without requiring
+// distributed locks. The grace period (default 60s) provides a buffer
+// for any in-flight requests to complete.
+func (s *LocalStorage) IsExpiredForCleanup(fileId string, defaultTTL int, gracePeriod int) (bool, error) {
+	metadata, err := s.GetMetadata(fileId)
+	if err != nil {
+		return false, err
+	}
+
+	now := time.Now().Unix()
+
+	if metadata == nil {
+		// Legacy file without metadata
+		fullPath, err := s.validatePath(fileId)
+		if err != nil {
+			return false, err
+		}
+		info, err := os.Stat(fullPath)
+		if err != nil {
+			return false, err
+		}
+		createdAt := info.ModTime().Unix()
+		// Add grace period for cleanup
+		return now > createdAt+int64(defaultTTL)+int64(gracePeriod), nil
+	}
+
+	// If ExpiresAt is set, use it + grace period
+	if metadata.ExpiresAt > 0 {
+		return now > metadata.ExpiresAt+int64(gracePeriod), nil
+	}
+
+	// Otherwise, use default TTL + grace period from creation time
+	return now > metadata.CreatedAt+int64(defaultTTL)+int64(gracePeriod), nil
 }

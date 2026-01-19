@@ -32,7 +32,11 @@ func GetStorage() Storage {
 }
 
 // StartCleanupWorker starts the background cleanup worker
-func StartCleanupWorker(intervalStr string, defaultTTL int) {
+//
+// The gracePeriod parameter enables safe operation in multi-container environments.
+// Files are deleted only after TTL + gracePeriod, while readers reject expired files
+// immediately at TTL. This prevents files from being deleted while being read.
+func StartCleanupWorker(intervalStr string, defaultTTL int, gracePeriod int) {
 	if globalLocalStorage == nil {
 		log.Fatalf("storage not initialized, cannot start cleanup worker")
 	}
@@ -43,7 +47,7 @@ func StartCleanupWorker(intervalStr string, defaultTTL int) {
 		interval = 5 * time.Minute
 	}
 
-	globalCleanupWorker = NewCleanupWorker(globalLocalStorage, interval, defaultTTL)
+	globalCleanupWorker = NewCleanupWorker(globalLocalStorage, interval, defaultTTL, gracePeriod)
 	globalCleanupWorker.Start()
 }
 
