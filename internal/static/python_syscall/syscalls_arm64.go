@@ -31,7 +31,7 @@ var ALLOW_FILE_SYSCALLS = []int{
 var ALLOW_SYSCALLS = []int{
 
 	// thread
-	syscall.SYS_FUTEX, SYS_CLONE3, SYS_RESTART_SYSCALL,
+	syscall.SYS_FUTEX, SYS_RESTART_SYSCALL,
 
 	// memory
 	syscall.SYS_MMAP, syscall.SYS_BRK, syscall.SYS_MPROTECT, syscall.SYS_MUNMAP, syscall.SYS_RT_SIGRETURN, syscall.SYS_RT_SIGPROCMASK,
@@ -71,7 +71,7 @@ var ALLOW_ERROR_SYSCALLS = []int{
 
 var ALLOW_NETWORK_SYSCALLS = []int{
 	syscall.SYS_SOCKET, syscall.SYS_CONNECT, syscall.SYS_BIND, syscall.SYS_LISTEN, syscall.SYS_ACCEPT, syscall.SYS_SENDTO,
-	syscall.SYS_RECVFROM, syscall.SYS_RECVMSG, syscall.SYS_GETSOCKOPT,
-	syscall.SYS_GETSOCKNAME, 	syscall.SYS_SENDMSG, SYS_SENDMMSG, syscall.SYS_GETSOCKOPT,
+	syscall.SYS_RECVFROM, syscall.SYS_RECVMSG, syscall.SYS_GETSOCKOPT, syscall.SYS_SETSOCKOPT,
+	syscall.SYS_GETSOCKNAME, syscall.SYS_GETPEERNAME, syscall.SYS_SENDMSG, SYS_SENDMMSG,
 	syscall.SYS_FSTATAT,
 }

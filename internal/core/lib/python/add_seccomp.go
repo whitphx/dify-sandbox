@@ -32,8 +32,6 @@ func InitSeccomp(uid int, gid int, enable_network bool) error {
 	lib.SetNoNewPrivs()
 
 	allowed_syscalls := []int{}
-	allowed_not_kill_syscalls := []int{}
-	allowed_not_kill_syscalls = append(allowed_not_kill_syscalls, python_syscall.ALLOW_ERROR_SYSCALLS...)
 
 	allowed_syscall := os.Getenv("ALLOWED_SYSCALLS")
 	if allowed_syscall != "" {
@@ -50,6 +48,22 @@ func InitSeccomp(uid int, gid int, enable_network bool) error {
 		allowed_syscalls = append(allowed_syscalls, python_syscall.ALLOW_FILE_SYSCALLS...)
 		if enable_network {
 			allowed_syscalls = append(allowed_syscalls, python_syscall.ALLOW_NETWORK_SYSCALLS...)
+		}
+	}
+
+	// Build a set of allowed syscalls for efficient lookup
+	allowedSet := make(map[int]bool)
+	for _, sc := range allowed_syscalls {
+		allowedSet[sc] = true
+	}
+
+	// Filter ALLOW_ERROR_SYSCALLS to exclude any syscalls that are already in allowed_syscalls.
+	// This prevents ActErrno rules from overriding ActAllow rules for the same syscall
+	// (e.g., SYS_SOCKET when network is enabled).
+	allowed_not_kill_syscalls := []int{}
+	for _, sc := range python_syscall.ALLOW_ERROR_SYSCALLS {
+		if !allowedSet[sc] {
+			allowed_not_kill_syscalls = append(allowed_not_kill_syscalls, sc)
 		}
 	}
 
