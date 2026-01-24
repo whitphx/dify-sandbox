@@ -1,6 +1,7 @@
 package integrationtests_test
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -19,7 +20,7 @@ func TestFileUpload(t *testing.T) {
 	}
 
 	// 2. Run code with file_id
-	resp := service.RunPython3Code(`
+	resp := service.RunPython3Code(context.TODO(), `
 print(open("test.txt").read())
 	`, "", false, map[string]string{
 		"test.txt": fileId,

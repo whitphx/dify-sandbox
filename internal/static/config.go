@@ -1,12 +1,12 @@
 package static
 
 import (
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
 
 	"github.com/langgenius/dify-sandbox/internal/types"
-	"github.com/langgenius/dify-sandbox/internal/utils/log"
 	"gopkg.in/yaml.v3"
 )
 
@@ -66,7 +66,7 @@ func InitConfig(path string) error {
 	}
 
 	if difySandboxGlobalConfigurations.PythonPath == "" {
-		difySandboxGlobalConfigurations.PythonPath = "/usr/local/bin/python3"
+		difySandboxGlobalConfigurations.PythonPath = "/opt/python/bin/python3"
 	}
 
 	python_lib_path := os.Getenv("PYTHON_LIB_PATH")
@@ -162,14 +162,14 @@ func InitConfig(path string) error {
 	}
 
 	if difySandboxGlobalConfigurations.EnableNetwork {
-		log.Info("network has been enabled")
+		slog.Info("network has been enabled")
 		socks5_proxy := os.Getenv("SOCKS5_PROXY")
 		if socks5_proxy != "" {
 			difySandboxGlobalConfigurations.Proxy.Socks5 = socks5_proxy
 		}
 
 		if difySandboxGlobalConfigurations.Proxy.Socks5 != "" {
-			log.Info("using socks5 proxy: %s", difySandboxGlobalConfigurations.Proxy.Socks5)
+			slog.Info("using socks5 proxy", "proxy", difySandboxGlobalConfigurations.Proxy.Socks5)
 		}
 
 		https_proxy := os.Getenv("HTTPS_PROXY")
@@ -178,7 +178,7 @@ func InitConfig(path string) error {
 		}
 
 		if difySandboxGlobalConfigurations.Proxy.Https != "" {
-			log.Info("using https proxy: %s", difySandboxGlobalConfigurations.Proxy.Https)
+			slog.Info("using https proxy", "proxy", difySandboxGlobalConfigurations.Proxy.Https)
 		}
 
 		http_proxy := os.Getenv("HTTP_PROXY")
@@ -187,7 +187,7 @@ func InitConfig(path string) error {
 		}
 
 		if difySandboxGlobalConfigurations.Proxy.Http != "" {
-			log.Info("using http proxy: %s", difySandboxGlobalConfigurations.Proxy.Http)
+			slog.Info("using http proxy", "proxy", difySandboxGlobalConfigurations.Proxy.Http)
 		}
 	}
 	return nil

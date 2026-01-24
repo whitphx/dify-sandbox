@@ -1,6 +1,7 @@
 package python
 
 import (
+	"context"
 	"crypto/rand"
 	_ "embed"
 	"encoding/base64"
@@ -29,6 +30,7 @@ type PythonRunner struct {
 var sandbox_fs []byte
 
 func (p *PythonRunner) Run(
+	ctx context.Context,
 	code string,
 	timeout time.Duration,
 	stdin []byte,
@@ -38,7 +40,7 @@ func (p *PythonRunner) Run(
 	configuration := static.GetDifySandboxGlobalConfigurations()
 
 	// initialize the environment
-	untrusted_code_path, key, err := p.InitializeEnvironment(code, preload, options)
+	untrustedCodePath, key, err := p.InitializeEnvironment(code, preload, options)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -46,13 +48,13 @@ func (p *PythonRunner) Run(
 	filesChan := make(chan map[string]string, 1)
 
 	// capture the output
-	output_handler := runner.NewOutputCaptureRunner()
-	output_handler.SetTimeout(timeout)
-	output_handler.SetAfterExitHook(func() {
+	outputHandler := runner.NewOutputCaptureRunner()
+	outputHandler.SetTimeout(timeout)
+	outputHandler.SetAfterExitHook(func() {
 		// Read requested files before cleanup
 		files := make(map[string]string)
 		if options != nil && len(options.FetchFiles) > 0 {
-			runDir := path.Dir(untrusted_code_path)
+			runDir := path.Dir(untrustedCodePath)
 			// Get absolute path for secure comparison
 			absRunDir, err := filepath.Abs(runDir)
 			if err == nil {
@@ -86,18 +88,18 @@ func (p *PythonRunner) Run(
 		close(filesChan)
 
 		// remove the entire run directory
-		os.RemoveAll(path.Dir(untrusted_code_path))
+		os.RemoveAll(path.Dir(untrustedCodePath))
 	})
 
-	// calculate runDir from untrusted_code_path
-	runDir := path.Dir(untrusted_code_path)
+	// calculate runDir from untrustedCodePath
+	runDir := path.Dir(untrustedCodePath)
 	runID := path.Base(runDir)
 	relRunDir := path.Join("tmp", runID)
 
 	// create a new process
 	cmd := exec.Command(
 		configuration.PythonPath,
-		untrusted_code_path,
+		untrustedCodePath,
 		LIB_PATH,
 		key,
 		relRunDir,
@@ -130,12 +132,12 @@ func (p *PythonRunner) Run(
 		cmd.Env = append(cmd.Env, fmt.Sprintf("ALLOWED_SYSCALLS=%s", jsonString))
 	}
 
-	err = output_handler.CaptureOutput(cmd)
+	err = outputHandler.CaptureOutput(ctx, cmd)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
 
-	return output_handler.GetStdout(), output_handler.GetStderr(), output_handler.GetDone(), filesChan, nil
+	return outputHandler.GetStdout(), outputHandler.GetStderr(), outputHandler.GetDone(), filesChan, nil
 }
 
 func (p *PythonRunner) InitializeEnvironment(code string, preload string, options *types.RunnerOptions) (string, string, error) {
@@ -145,11 +147,11 @@ func (p *PythonRunner) InitializeEnvironment(code string, preload string, option
 	}
 
 	// create a tmp dir and copy the python script
-	temp_code_name := strings.ReplaceAll(uuid.New().String(), "-", "_")
-	temp_code_name = strings.ReplaceAll(temp_code_name, "/", ".")
+	tempCodeName := strings.ReplaceAll(uuid.New().String(), "-", "_")
+	tempCodeName = strings.ReplaceAll(tempCodeName, "/", ".")
 
 	// Create a unique directory for this run
-	runDir := path.Join(LIB_PATH, "tmp", temp_code_name)
+	runDir := path.Join(LIB_PATH, "tmp", tempCodeName)
 	err := os.MkdirAll(runDir, 0755)
 	if err != nil {
 		return "", "", err
@@ -250,7 +252,7 @@ func (p *PythonRunner) InitializeEnvironment(code string, preload string, option
 	// encode code using base64
 	code = base64.StdEncoding.EncodeToString(encrypted_code)
 	// encode key using base64
-	encoded_key := base64.StdEncoding.EncodeToString(key)
+	encodedKey := base64.StdEncoding.EncodeToString(key)
 
 	code = strings.Replace(
 		script,
@@ -260,11 +262,11 @@ func (p *PythonRunner) InitializeEnvironment(code string, preload string, option
 	)
 
 	// Write the prescript (untrusted code) to the run directory
-	untrusted_code_path := path.Join(runDir, fmt.Sprintf("%s.py", temp_code_name))
-	err = os.WriteFile(untrusted_code_path, []byte(code), 0755)
+	untrustedCodePath := path.Join(runDir, fmt.Sprintf("%s.py", tempCodeName))
+	err = os.WriteFile(untrustedCodePath, []byte(code), 0755)
 	if err != nil {
 		return "", "", err
 	}
 
-	return untrusted_code_path, encoded_key, nil
+	return untrustedCodePath, encodedKey, nil
 }

@@ -1,6 +1,7 @@
 package integrationtests_test
 
 import (
+	"context"
 	"io"
 	"testing"
 
@@ -10,7 +11,7 @@ import (
 
 func TestFileDownload(t *testing.T) {
 	// 1. Run code that generates a file
-	resp := service.RunPython3Code(`
+	resp := service.RunPython3Code(context.TODO(), `
 with open("output.txt", "w") as f:
     f.write("Hello, World!")
 	`, "", false, nil, []string{"output.txt"})

@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -16,29 +17,42 @@ func initConfig() {
 	// auto migrate database
 	err := static.InitConfig("conf/config.yaml")
 	if err != nil {
-		log.Panic("failed to init config: %v", err)
+		slog.Error("failed to init config", "err", err)
+		panic(fmt.Sprintf("failed to init config: %v", err))
 	}
-	log.Info("config init success")
+
+	// initialize logger with config
+	config := static.GetDifySandboxGlobalConfigurations()
+	if config.LogPath != "" {
+		err = log.Init(config.LogPath)
+		if err != nil {
+			slog.Error("failed to initialize logger with config", "err", err)
+			panic(fmt.Sprintf("failed to initialize logger with config: %v", err))
+		}
+	}
+
+	slog.Info("config init success")
 
 	err = static.SetupRunnerDependencies()
 	if err != nil {
-		log.Error("failed to setup runner dependencies: %v", err)
+		slog.Error("failed to setup runner dependencies", "err", err)
 	}
-	log.Info("runner dependencies init success")
+	slog.Info("runner dependencies init success")
 
 	// Init storage
-	config := static.GetDifySandboxGlobalConfigurations()
 	storageBaseDir := config.StoragePath
 	if storageBaseDir == "" {
 		storageBaseDir = "data/sandbox"
 	}
 	storage.InitStorage(storageBaseDir)
-	log.Info("storage init success")
+	slog.Info("storage init success")
 
 	// Start cleanup worker
 	storage.StartCleanupWorker(config.FileCleanupInterval, config.FileTTL, config.FileCleanupGracePeriod)
-	log.Info("file cleanup worker started (interval: %s, default TTL: %ds, grace period: %ds)",
-		config.FileCleanupInterval, config.FileTTL, config.FileCleanupGracePeriod)
+	slog.Info("file cleanup worker started",
+		"interval", config.FileCleanupInterval,
+		"default_ttl", config.FileTTL,
+		"grace_period", config.FileCleanupGracePeriod)
 }
 
 func initServer() {
@@ -59,49 +73,52 @@ func initServer() {
 }
 
 func initDependencies() {
-	log.Info("installing python dependencies...")
+	slog.Info("installing python dependencies")
 	dependencies := static.GetRunnerDependencies()
 	err := python.InstallDependencies(dependencies.PythonRequirements)
 	if err != nil {
-		log.Panic("failed to install python dependencies: %v", err)
+		slog.Error("failed to install python dependencies", "err", err)
+		panic(fmt.Sprintf("failed to install python dependencies: %v", err))
 	}
-	log.Info("python dependencies installed")
+	slog.Info("python dependencies installed")
 
-	log.Info("initializing python dependencies sandbox...")
+	slog.Info("initializing python dependencies sandbox")
 	err = python.PreparePythonDependenciesEnv()
 	if err != nil {
-		log.Panic("failed to initialize python dependencies sandbox: %v", err)
+		slog.Error("failed to initialize python dependencies sandbox", "err", err)
+		panic(fmt.Sprintf("failed to initialize python dependencies sandbox: %v", err))
 	}
-	log.Info("python dependencies sandbox initialized")
+	slog.Info("python dependencies sandbox initialized")
 
 	// start a ticker to update python dependencies to keep the sandbox up-to-date
 	go func() {
 		updateInterval := static.GetDifySandboxGlobalConfigurations().PythonDepsUpdateInterval
 		tickerDuration, err := time.ParseDuration(updateInterval)
 		if err != nil {
-			log.Error("failed to parse python dependencies update interval, skip periodic updates: %v", err)
+			slog.Error("failed to parse python dependencies update interval, skip periodic updates", "err", err)
 			return
 		}
 		ticker := time.NewTicker(tickerDuration)
+		defer ticker.Stop()
 		for range ticker.C {
 			if err := updatePythonDependencies(dependencies); err != nil {
-				log.Error("Failed to update Python dependencies: %v", err)
+				slog.Error("Failed to update Python dependencies", "err", err)
 			}
 		}
 	}()
 }
 
 func updatePythonDependencies(dependencies static.RunnerDependencies) error {
-	log.Info("Updating Python dependencies...")
+	slog.Info("Updating Python dependencies")
 	if err := python.InstallDependencies(dependencies.PythonRequirements); err != nil {
-		log.Error("Failed to install Python dependencies: %v", err)
+		slog.Error("Failed to install Python dependencies", "err", err)
 		return err
 	}
 	if err := python.PreparePythonDependenciesEnv(); err != nil {
-		log.Error("Failed to prepare Python dependencies environment: %v", err)
+		slog.Error("Failed to prepare Python dependencies environment", "err", err)
 		return err
 	}
-	log.Info("Python dependencies updated successfully.")
+	slog.Info("Python dependencies updated successfully")
 	return nil
 }
 

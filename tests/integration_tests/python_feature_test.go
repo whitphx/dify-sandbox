@@ -1,6 +1,7 @@
 package integrationtests_test
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -11,7 +12,7 @@ import (
 func TestPythonBase64(t *testing.T) {
 	// Test case for base64
 	runMultipleTestings(t, 50, func(t *testing.T) {
-		resp := service.RunPython3Code(`
+		resp := service.RunPython3Code(context.TODO(), `
 import base64
 print(base64.b64decode(base64.b64encode(b"hello world")).decode())
 		`, "", true, nil, nil)
@@ -32,7 +33,7 @@ print(base64.b64decode(base64.b64encode(b"hello world")).decode())
 func TestPythonJSON(t *testing.T) {
 	runMultipleTestings(t, 50, func(t *testing.T) {
 		// Test case for json
-		resp := service.RunPython3Code(`
+		resp := service.RunPython3Code(context.TODO(), `
 import json
 print(json.dumps({"hello": "world"}))
 		`, "", true, nil, nil)
@@ -53,7 +54,7 @@ print(json.dumps({"hello": "world"}))
 func TestPythonRequests(t *testing.T) {
 	// Test case for http
 	runMultipleTestings(t, 1, func(t *testing.T) {
-		resp := service.RunPython3Code(`
+		resp := service.RunPython3Code(context.TODO(), `
 import requests
 print(requests.get("https://www.bilibili.com").content)
 	`, "", true, nil, nil)
@@ -74,7 +75,7 @@ print(requests.get("https://www.bilibili.com").content)
 func TestPythonHttpx(t *testing.T) {
 	// Test case for http
 	runMultipleTestings(t, 1, func(t *testing.T) {
-		resp := service.RunPython3Code(`
+		resp := service.RunPython3Code(context.TODO(), `
 import httpx
 print(httpx.get("https://www.bilibili.com").content)
 	`, "", true, nil, nil)
@@ -95,7 +96,7 @@ print(httpx.get("https://www.bilibili.com").content)
 func TestPythonTimezone(t *testing.T) {
 	// Test case for time
 	runMultipleTestings(t, 1, func(t *testing.T) {
-		resp := service.RunPython3Code(`
+		resp := service.RunPython3Code(context.TODO(), `
 from datetime import datetime
 from zoneinfo import ZoneInfo
 

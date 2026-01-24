@@ -1,10 +1,11 @@
 package controller
 
 import (
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 	"github.com/langgenius/dify-sandbox/internal/middleware"
 	"github.com/langgenius/dify-sandbox/internal/static"
-	"net/http"
 )
 
 func Setup(Router *gin.Engine) {
@@ -41,6 +42,7 @@ func InitRunRouter(Router *gin.RouterGroup) {
 			"run",
 			middleware.MaxRequest(static.GetDifySandboxGlobalConfigurations().MaxRequests),
 			middleware.MaxWorker(static.GetDifySandboxGlobalConfigurations().MaxWorkers),
+			middleware.TraceMiddleware(),
 			RunSandboxController,
 		)
 	}

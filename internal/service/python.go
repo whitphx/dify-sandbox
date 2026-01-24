@@ -1,9 +1,11 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/langgenius/dify-sandbox/internal/core/runner/python"
@@ -20,9 +22,8 @@ type RunCodeResponse struct {
 }
 
 // inputFiles is map[filename]file_id
-func RunPython3Code(code string, preload string, enableNetwork bool, inputFiles map[string]string, fetchFiles []string) *types.DifySandboxResponse {
+func RunPython3Code(ctx context.Context, code string, preload string, enableNetwork bool, inputFiles map[string]string, fetchFiles []string) *types.DifySandboxResponse {
 	// Reconstruct options
-	// Note: We are creating RunnerOptions here now, instead of receiving it
 	options := &runner_types.RunnerOptions{
 		EnableNetwork: enableNetwork,
 		FetchFiles:    fetchFiles,
@@ -59,7 +60,6 @@ func RunPython3Code(code string, preload string, enableNetwork bool, inputFiles 
 		}
 		defer f.Close()
 		// Upload to storage
-		// We can return the path/id
 		return store.Put(f, filename)
 	}
 
@@ -71,47 +71,51 @@ func RunPython3Code(code string, preload string, enableNetwork bool, inputFiles 
 		static.GetDifySandboxGlobalConfigurations().WorkerTimeout * int(time.Second),
 	)
 
-	// ... inside RunPython3Code ...
 	runner := python.PythonRunner{}
-	stdout, stderr, done, filesChan, err := runner.Run(
+	stdout, stderr, done, filesChan, err := runner.Run(ctx,
 		code, timeout, nil, preload, options,
 	)
 	if err != nil {
 		return types.ErrorResponse(-500, err.Error())
 	}
 
-	stdout_str := ""
-	stderr_str := ""
+	var stdoutStr strings.Builder
+	var stderrStr strings.Builder
 	var files map[string]string
 
-	// Note: We do NOT close done, stdout, stderr channels - they are owned by the runner.
-	// filesChan is closed by runner after writing files.
+	defer close(done)
 
 	for {
 		select {
 		case <-done:
-			// Process is done. The AfterExitHook runs BEFORE done is signaled,
-			// so filesChan is guaranteed to have data (or be closed).
-			if files == nil {
-				files = <-filesChan
+			// Drain any remaining buffered output to avoid races
+		drain:
+			for {
+				select {
+				case out := <-stdout:
+					stdoutStr.Write(out)
+				case errOut := <-stderr:
+					stderrStr.Write(errOut)
+				case f := <-filesChan:
+					files = f
+				default:
+					break drain
+				}
 			}
+			// Close channels after draining all data
+			close(stdout)
+			close(stderr)
 			return types.SuccessResponse(&RunCodeResponse{
-				Stdout: stdout_str,
-				Stderr: stderr_str,
+				Stdout: stdoutStr.String(),
+				Stderr: stderrStr.String(),
 				Files:  files,
 			})
-		case out, ok := <-stdout:
-			if ok {
-				stdout_str += string(out)
-			}
-		case errOut, ok := <-stderr:
-			if ok {
-				stderr_str += string(errOut)
-			}
-		case f, ok := <-filesChan:
-			if ok {
-				files = f
-			}
+		case out := <-stdout:
+			stdoutStr.Write(out)
+		case errOut := <-stderr:
+			stderrStr.Write(errOut)
+		case f := <-filesChan:
+			files = f
 			filesChan = nil // Stop listening to avoid busy loop on closed channel
 		}
 	}

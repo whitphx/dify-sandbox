@@ -1,6 +1,8 @@
 package service
 
 import (
+	"context"
+	"strings"
 	"time"
 
 	"github.com/langgenius/dify-sandbox/internal/core/runner/nodejs"
@@ -9,44 +11,56 @@ import (
 	"github.com/langgenius/dify-sandbox/internal/types"
 )
 
-func RunNodeJsCode(code string, preload string, options *runner_types.RunnerOptions) *types.DifySandboxResponse {
+func RunNodeJsCode(ctx context.Context, code string, preload string, options *runner_types.RunnerOptions) *types.DifySandboxResponse {
 	if err := checkOptions(options); err != nil {
 		return types.ErrorResponse(-400, err.Error())
 	}
 
-	
 	if !static.GetDifySandboxGlobalConfigurations().EnablePreload {
-	    preload = ""
+		preload = ""
 	}
-	
+
 	timeout := time.Duration(
 		static.GetDifySandboxGlobalConfigurations().WorkerTimeout * int(time.Second),
 	)
 
 	runner := nodejs.NodeJsRunner{}
-	stdout, stderr, done, err := runner.Run(code, timeout, nil, preload, options)
+	stdout, stderr, done, err := runner.Run(ctx, code, timeout, nil, preload, options)
 	if err != nil {
 		return types.ErrorResponse(-500, err.Error())
 	}
 
-	stdout_str := ""
-	stderr_str := ""
+	var stdoutStr strings.Builder
+	var stderrStr strings.Builder
 
 	defer close(done)
-	defer close(stdout)
-	defer close(stderr)
 
 	for {
 		select {
 		case <-done:
+			// Drain any remaining buffered output to avoid races
+		drain:
+			for {
+				select {
+				case out := <-stdout:
+					stdoutStr.Write(out)
+				case err := <-stderr:
+					stderrStr.Write(err)
+				default:
+					break drain
+				}
+			}
+			// Close channels after draining all data
+			close(stdout)
+			close(stderr)
 			return types.SuccessResponse(&RunCodeResponse{
-				Stdout: stdout_str,
-				Stderr: stderr_str,
+				Stdout: stdoutStr.String(),
+				Stderr: stderrStr.String(),
 			})
 		case out := <-stdout:
-			stdout_str += string(out)
+			stdoutStr.Write(out)
 		case err := <-stderr:
-			stderr_str += string(err)
+			stderrStr.Write(err)
 		}
 	}
 }
