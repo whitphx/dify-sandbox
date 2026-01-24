@@ -14,8 +14,12 @@ RUN bash ./build/build_${TARGETARCH}.sh
 
 # Runtime stage
 FROM ${BASE_IMAGE} AS runner
-RUN apt-get update && apt-get install -y \
-    libseccomp-dev \
+# Install libseccomp 2.6.0 from Debian trixie to match the version used in the builder
+# (golang:1.24.9 is based on Debian trixie which has libseccomp 2.6.0)
+RUN echo 'deb http://deb.debian.org/debian trixie main' >> /etc/apt/sources.list \
+    && apt-get update && apt-get install -y -t trixie \
+    libseccomp2 \
+    && apt-get install -y \
     curl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
