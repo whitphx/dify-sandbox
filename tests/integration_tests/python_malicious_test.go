@@ -25,7 +25,7 @@ print(123)
 		t.Error(resp)
 	}
 
-    // Expecting operation not permitted due to seccomp/security hardening
+	// Expecting operation not permitted due to seccomp/security hardening
 	stderr := strings.ToLower(resp.Data.(*service.RunCodeResponse).Stderr)
 	if !strings.Contains(stderr, "operation not permitted") {
 		t.Error(resp.Data.(*service.RunCodeResponse).Stderr)
