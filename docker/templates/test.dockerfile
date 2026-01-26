@@ -101,5 +101,6 @@ RUN case "${TARGETARCH}" in \
     && ln -s /usr/local/go/bin/go /usr/local/bin/go \
     && rm -f go${GOLANG_VERSION}.${GOLANG_ARCH}.tar.gz
 
-# Run tests
-RUN go test -timeout 120s -v ./tests/integration_tests/...
+# Run tests at container runtime (not during build)
+# Seccomp requires --privileged or CAP_SYS_ADMIN at runtime
+CMD ["go", "test", "-timeout", "120s", "-v", "./tests/integration_tests/..."]
