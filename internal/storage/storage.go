@@ -54,6 +54,11 @@ func (s *LocalStorage) validatePath(fileId string) (string, error) {
 		return "", fmt.Errorf("invalid file id: contains path traversal")
 	}
 
+	// Reject direct access to metadata files (internal implementation detail)
+	if strings.HasSuffix(fileId, ".meta.json") {
+		return "", fmt.Errorf("invalid file id")
+	}
+
 	cleanPath := filepath.Clean(fileId)
 	if cleanPath == "." || cleanPath == "/" || cleanPath == "" {
 		return "", fmt.Errorf("invalid file id")

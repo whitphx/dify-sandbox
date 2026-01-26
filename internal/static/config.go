@@ -113,7 +113,11 @@ func InitConfig(path string) error {
 
 	file_ttl := os.Getenv("FILE_TTL")
 	if file_ttl != "" {
-		difySandboxGlobalConfigurations.FileTTL, _ = strconv.Atoi(file_ttl)
+		if val, err := strconv.Atoi(file_ttl); err != nil {
+			slog.Warn("invalid FILE_TTL value, using default", "value", file_ttl, "error", err)
+		} else {
+			difySandboxGlobalConfigurations.FileTTL = val
+		}
 	}
 
 	if difySandboxGlobalConfigurations.FileTTL == 0 {
@@ -131,7 +135,11 @@ func InitConfig(path string) error {
 
 	file_cleanup_grace_period := os.Getenv("FILE_CLEANUP_GRACE_PERIOD")
 	if file_cleanup_grace_period != "" {
-		difySandboxGlobalConfigurations.FileCleanupGracePeriod, _ = strconv.Atoi(file_cleanup_grace_period)
+		if val, err := strconv.Atoi(file_cleanup_grace_period); err != nil {
+			slog.Warn("invalid FILE_CLEANUP_GRACE_PERIOD value, using default", "value", file_cleanup_grace_period, "error", err)
+		} else {
+			difySandboxGlobalConfigurations.FileCleanupGracePeriod = val
+		}
 	}
 
 	if difySandboxGlobalConfigurations.FileCleanupGracePeriod == 0 {

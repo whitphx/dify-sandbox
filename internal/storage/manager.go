@@ -25,9 +25,9 @@ func InitStorage(baseDir string) {
 }
 
 func GetStorage() Storage {
-	if GlobalStorage == nil {
-		InitStorage("data/sandbox") // Default fallback
-	}
+	// Always call InitStorage - sync.Once inside ensures initialization
+	// happens only once, avoiding race conditions on GlobalStorage check
+	InitStorage("data/sandbox") // Default fallback if not already initialized
 	return GlobalStorage
 }
 
