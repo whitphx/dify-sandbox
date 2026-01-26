@@ -26,6 +26,31 @@ type PythonRunner struct {
 	runner.TempDirRunner
 }
 
+// safePathWithinDir validates a filename and returns its absolute path if it's
+// safely within baseDir. Returns empty string and false if the path is invalid
+// or would escape the base directory (path traversal prevention).
+//
+// Callers should skip invalid files silently (don't return errors for validation
+// failures). This avoids leaking information to potential attackers about why
+// a path was rejected. I/O errors after validation should still be reported.
+func safePathWithinDir(baseDir, filename string) (absPath string, ok bool) {
+	// Quick reject for obvious traversal attempts (defense-in-depth).
+	// The HasPrefix check below would also catch this, but failing fast
+	// avoids unnecessary filesystem operations.
+	if strings.Contains(filename, "..") {
+		return "", false
+	}
+	filePath := filepath.Join(baseDir, filename)
+	absFilePath, err := filepath.Abs(filePath)
+	if err != nil {
+		return "", false
+	}
+	if !strings.HasPrefix(absFilePath, baseDir+string(filepath.Separator)) {
+		return "", false
+	}
+	return absFilePath, true
+}
+
 //go:embed prescript.py
 var sandbox_fs []byte
 
@@ -59,18 +84,8 @@ func (p *PythonRunner) Run(
 			absRunDir, err := filepath.Abs(runDir)
 			if err == nil {
 				for _, filename := range options.FetchFiles {
-					// Reject filenames with path traversal patterns
-					if strings.Contains(filename, "..") {
-						continue
-					}
-					filePath := filepath.Join(absRunDir, filename)
-					// Get absolute path and verify it's within runDir
-					absFilePath, err := filepath.Abs(filePath)
-					if err != nil {
-						continue
-					}
-					// Ensure the path is within runDir (with trailing separator to prevent prefix attacks)
-					if !strings.HasPrefix(absFilePath, absRunDir+string(filepath.Separator)) {
+					absFilePath, ok := safePathWithinDir(absRunDir, filename)
+					if !ok {
 						continue
 					}
 
@@ -171,18 +186,8 @@ func (p *PythonRunner) InitializeEnvironment(code string, preload string, option
 			return "", "", fmt.Errorf("failed to get absolute run directory: %w", err)
 		}
 		for filename, reader := range options.InputFiles {
-			// Reject filenames with path traversal patterns
-			if strings.Contains(filename, "..") {
-				continue
-			}
-			filePath := filepath.Join(absRunDir, filename)
-			// Get absolute path and verify it's within runDir
-			absFilePath, err := filepath.Abs(filePath)
-			if err != nil {
-				continue
-			}
-			// Ensure the path is within runDir (with trailing separator to prevent prefix attacks)
-			if !strings.HasPrefix(absFilePath, absRunDir+string(filepath.Separator)) {
+			absFilePath, ok := safePathWithinDir(absRunDir, filename)
+			if !ok {
 				continue
 			}
 			// Ensure parent dir exists
