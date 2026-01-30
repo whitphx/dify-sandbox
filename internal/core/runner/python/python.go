@@ -86,6 +86,7 @@ func (p *PythonRunner) Run(
 				for _, filename := range options.FetchFiles {
 					absFilePath, ok := safePathWithinDir(absRunDir, filename)
 					if !ok {
+						// Silent skip for invalid paths (see safePathWithinDir comment)
 						continue
 					}
 
@@ -188,10 +189,14 @@ func (p *PythonRunner) InitializeEnvironment(code string, preload string, option
 		for filename, reader := range options.InputFiles {
 			absFilePath, ok := safePathWithinDir(absRunDir, filename)
 			if !ok {
+				// Silent skip for validation failures (potential path traversal).
+				// I/O errors below are still returned since they indicate system problems.
 				continue
 			}
 			// Ensure parent dir exists
-			os.MkdirAll(filepath.Dir(absFilePath), 0755)
+			if err := os.MkdirAll(filepath.Dir(absFilePath), 0755); err != nil {
+				return "", "", err
+			}
 
 			f, err := os.Create(absFilePath)
 			if err != nil {
