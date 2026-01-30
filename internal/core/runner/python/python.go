@@ -5,10 +5,13 @@ import (
 	"crypto/rand"
 	_ "embed"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -23,6 +26,31 @@ type PythonRunner struct {
 	runner.TempDirRunner
 }
 
+// safePathWithinDir validates a filename and returns its absolute path if it's
+// safely within baseDir. Returns empty string and false if the path is invalid
+// or would escape the base directory (path traversal prevention).
+//
+// Callers should skip invalid files silently (don't return errors for validation
+// failures). This avoids leaking information to potential attackers about why
+// a path was rejected. I/O errors after validation should still be reported.
+func safePathWithinDir(baseDir, filename string) (absPath string, ok bool) {
+	// Quick reject for obvious traversal attempts (defense-in-depth).
+	// The HasPrefix check below would also catch this, but failing fast
+	// avoids unnecessary filesystem operations.
+	if strings.Contains(filename, "..") {
+		return "", false
+	}
+	filePath := filepath.Join(baseDir, filename)
+	absFilePath, err := filepath.Abs(filePath)
+	if err != nil {
+		return "", false
+	}
+	if !strings.HasPrefix(absFilePath, baseDir+string(filepath.Separator)) {
+		return "", false
+	}
+	return absFilePath, true
+}
+
 //go:embed prescript.py
 var sandbox_fs []byte
 
@@ -33,22 +61,56 @@ func (p *PythonRunner) Run(
 	stdin []byte,
 	preload string,
 	options *types.RunnerOptions,
-) (chan []byte, chan []byte, chan bool, error) {
+) (chan []byte, chan []byte, chan bool, chan map[string]string, error) {
 	configuration := static.GetDifySandboxGlobalConfigurations()
 
 	// initialize the environment
 	untrustedCodePath, key, err := p.InitializeEnvironment(code, preload, options)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
+
+	filesChan := make(chan map[string]string, 1)
 
 	// capture the output
 	outputHandler := runner.NewOutputCaptureRunner()
 	outputHandler.SetTimeout(timeout)
 	outputHandler.SetAfterExitHook(func() {
-		// remove untrusted code
-		os.Remove(untrustedCodePath)
+		// Read requested files before cleanup
+		files := make(map[string]string)
+		if options != nil && len(options.FetchFiles) > 0 {
+			runDir := path.Dir(untrustedCodePath)
+			// Get absolute path for secure comparison
+			absRunDir, err := filepath.Abs(runDir)
+			if err == nil {
+				for _, filename := range options.FetchFiles {
+					absFilePath, ok := safePathWithinDir(absRunDir, filename)
+					if !ok {
+						// Silent skip for invalid paths (see safePathWithinDir comment)
+						continue
+					}
+
+					// Call OutputHandler if present
+					if options.OutputHandler != nil {
+						fileId, err := options.OutputHandler(filename, absFilePath)
+						if err == nil {
+							files[filename] = fileId
+						}
+					}
+				}
+			}
+		}
+		filesChan <- files
+		close(filesChan)
+
+		// remove the entire run directory
+		os.RemoveAll(path.Dir(untrustedCodePath))
 	})
+
+	// calculate runDir from untrustedCodePath
+	runDir := path.Dir(untrustedCodePath)
+	runID := path.Base(runDir)
+	relRunDir := path.Join("tmp", runID)
 
 	// create a new process
 	cmd := exec.Command(
@@ -56,6 +118,7 @@ func (p *PythonRunner) Run(
 		untrustedCodePath,
 		LIB_PATH,
 		key,
+		relRunDir,
 	)
 	cmd.Env = []string{}
 	cmd.Dir = LIB_PATH
@@ -73,19 +136,24 @@ func (p *PythonRunner) Run(
 	}
 
 	if len(configuration.AllowedSyscalls) > 0 {
-		cmd.Env = append(cmd.Env,
-			fmt.Sprintf("ALLOWED_SYSCALLS=%s",
-				strings.Trim(strings.Join(strings.Fields(fmt.Sprint(configuration.AllowedSyscalls)), ","), "[]"),
-			),
-		)
+		jsonBytes, err := json.Marshal(configuration.AllowedSyscalls)
+		if err != nil {
+			// Log the error but proceed, as the original code would have just used fmt.Sprint
+			fmt.Printf("ERROR: Failed to marshal AllowedSyscalls to JSON: %v\n", err)
+			// Fallback to original string representation if JSON marshaling fails
+			jsonBytes = []byte(strings.Trim(strings.Join(strings.Fields(fmt.Sprint(configuration.AllowedSyscalls)), ","), "[]"))
+		}
+		jsonString := string(jsonBytes)
+
+		cmd.Env = append(cmd.Env, fmt.Sprintf("ALLOWED_SYSCALLS=%s", jsonString))
 	}
 
 	err = outputHandler.CaptureOutput(ctx, cmd)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
-	return outputHandler.GetStdout(), outputHandler.GetStderr(), outputHandler.GetDone(), nil
+	return outputHandler.GetStdout(), outputHandler.GetStderr(), outputHandler.GetDone(), filesChan, nil
 }
 
 func (p *PythonRunner) InitializeEnvironment(code string, preload string, options *types.RunnerOptions) (string, string, error) {
@@ -97,6 +165,56 @@ func (p *PythonRunner) InitializeEnvironment(code string, preload string, option
 	// create a tmp dir and copy the python script
 	tempCodeName := strings.ReplaceAll(uuid.New().String(), "-", "_")
 	tempCodeName = strings.ReplaceAll(tempCodeName, "/", ".")
+
+	// Create a unique directory for this run
+	runDir := path.Join(LIB_PATH, "tmp", tempCodeName)
+	err := os.MkdirAll(runDir, 0755)
+	if err != nil {
+		return "", "", err
+	}
+
+	// Change ownership of the run directory to the sandbox user so they can write files
+	// Log but don't fail if this fails (chown may fail in non-root environments or certain container setups)
+	if err := os.Chown(runDir, static.SANDBOX_USER_UID, static.SANDBOX_GROUP_ID); err != nil {
+		fmt.Printf("WARNING: failed to chown run directory %s: %v\n", runDir, err)
+	}
+
+	// Write uploaded files
+	if options.InputFiles != nil {
+		// Get absolute path for secure comparison
+		absRunDir, err := filepath.Abs(runDir)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to get absolute run directory: %w", err)
+		}
+		for filename, reader := range options.InputFiles {
+			absFilePath, ok := safePathWithinDir(absRunDir, filename)
+			if !ok {
+				// Silent skip for validation failures (potential path traversal).
+				// I/O errors below are still returned since they indicate system problems.
+				continue
+			}
+			// Ensure parent dir exists
+			if err := os.MkdirAll(filepath.Dir(absFilePath), 0755); err != nil {
+				return "", "", err
+			}
+
+			f, err := os.Create(absFilePath)
+			if err != nil {
+				return "", "", err
+			}
+			_, err = io.Copy(f, reader)
+			f.Close()
+			if err != nil {
+				return "", "", err
+			}
+
+			// Also chown the file - log but don't fail if this fails
+			// (chown may fail in non-root environments or certain container setups)
+			if err := os.Chown(absFilePath, static.SANDBOX_USER_UID, static.SANDBOX_GROUP_ID); err != nil {
+				fmt.Printf("WARNING: failed to chown %s: %v\n", absFilePath, err)
+			}
+		}
+	}
 
 	script := strings.Replace(
 		string(sandbox_fs),
@@ -130,7 +248,7 @@ func (p *PythonRunner) InitializeEnvironment(code string, preload string, option
 	// generate a random 512 bit key
 	key_len := 64
 	key := make([]byte, key_len)
-	_, err := rand.Read(key)
+	_, err = rand.Read(key)
 	if err != nil {
 		return "", "", err
 	}
@@ -153,11 +271,8 @@ func (p *PythonRunner) InitializeEnvironment(code string, preload string, option
 		1,
 	)
 
-	untrustedCodePath := fmt.Sprintf("%s/tmp/%s.py", LIB_PATH, tempCodeName)
-	err = os.MkdirAll(path.Dir(untrustedCodePath), 0755)
-	if err != nil {
-		return "", "", err
-	}
+	// Write the prescript (untrusted code) to the run directory
+	untrustedCodePath := path.Join(runDir, fmt.Sprintf("%s.py", tempCodeName))
 	err = os.WriteFile(untrustedCodePath, []byte(code), 0755)
 	if err != nil {
 		return "", "", err

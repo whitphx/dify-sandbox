@@ -30,7 +30,8 @@ func Seccomp(allowed_syscalls []int, allowed_not_kill_syscalls []int) error {
 	}
 
 	for _, syscall := range allowed_not_kill_syscalls {
-		ctx.AddRule(sg.ScmpSyscall(syscall), sg.ActErrno)
+		// Use EPERM (1) to deny the syscall without killing the process
+		ctx.AddRule(sg.ScmpSyscall(syscall), sg.ActErrno.SetReturnCode(1))
 	}
 
 	file := os.NewFile(uintptr(writer.Fd()), "pipe")

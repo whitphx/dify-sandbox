@@ -9,6 +9,7 @@ import (
 	"github.com/langgenius/dify-sandbox/internal/controller"
 	"github.com/langgenius/dify-sandbox/internal/core/runner/python"
 	"github.com/langgenius/dify-sandbox/internal/static"
+	"github.com/langgenius/dify-sandbox/internal/storage"
 	"github.com/langgenius/dify-sandbox/internal/utils/log"
 )
 
@@ -37,6 +38,21 @@ func initConfig() {
 		slog.Error("failed to setup runner dependencies", "err", err)
 	}
 	slog.Info("runner dependencies init success")
+
+	// Init storage
+	storageBaseDir := config.StoragePath
+	if storageBaseDir == "" {
+		storageBaseDir = "data/sandbox"
+	}
+	storage.InitStorage(storageBaseDir)
+	slog.Info("storage init success")
+
+	// Start cleanup worker
+	storage.StartCleanupWorker(config.FileCleanupInterval, config.FileTTL, config.FileCleanupGracePeriod)
+	slog.Info("file cleanup worker started",
+		"interval", config.FileCleanupInterval,
+		"default_ttl", config.FileTTL,
+		"grace_period", config.FileCleanupGracePeriod)
 }
 
 func initServer() {

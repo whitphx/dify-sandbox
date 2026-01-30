@@ -1,6 +1,9 @@
 package types
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"io"
+)
 
 type Dependency struct {
 	Name    string `json:"name"`
@@ -8,7 +11,12 @@ type Dependency struct {
 }
 
 type RunnerOptions struct {
-	EnableNetwork bool `json:"enable_network"`
+	EnableNetwork bool                 `json:"enable_network"`
+	InputFiles    map[string]io.Reader `json:"-"` // Map filename -> reader
+	FetchFiles    []string             `json:"fetch_files"`
+	// OutputHandler is called for each file in FetchFiles before cleanup.
+	// Args: filename, localPath. Returns: fileId (or reference), error.
+	OutputHandler func(string, string) (string, error) `json:"-"`
 }
 
 func (r *RunnerOptions) Json() string {

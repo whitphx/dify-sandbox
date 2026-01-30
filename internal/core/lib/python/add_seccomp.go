@@ -15,20 +15,10 @@ import (
 //var allow_syscalls = []int{}
 
 func InitSeccomp(uid int, gid int, enable_network bool) error {
-	err := syscall.Chroot(".")
-	if err != nil {
-		return err
-	}
-	err = syscall.Chdir("/")
-	if err != nil {
-		return err
-	}
-
 	lib.SetNoNewPrivs()
 
 	allowed_syscalls := []int{}
 	allowed_not_kill_syscalls := []int{}
-	allowed_not_kill_syscalls = append(allowed_not_kill_syscalls, python_syscall.ALLOW_ERROR_SYSCALLS...)
 
 	allowed_syscall := os.Getenv("ALLOWED_SYSCALLS")
 	if allowed_syscall != "" {
@@ -42,24 +32,36 @@ func InitSeccomp(uid int, gid int, enable_network bool) error {
 		}
 	} else {
 		allowed_syscalls = append(allowed_syscalls, python_syscall.ALLOW_SYSCALLS...)
+		allowed_syscalls = append(allowed_syscalls, python_syscall.ALLOW_FILE_SYSCALLS...)
 		if enable_network {
 			allowed_syscalls = append(allowed_syscalls, python_syscall.ALLOW_NETWORK_SYSCALLS...)
 		}
+
+		// Filter ALLOW_ERROR_SYSCALLS to exclude syscalls already allowed.
+		// This prevents ActErrno rules from overriding ActAllow rules.
+		allowedSet := make(map[int]bool)
+		for _, sc := range allowed_syscalls {
+			allowedSet[sc] = true
+		}
+		for _, sc := range python_syscall.ALLOW_ERROR_SYSCALLS {
+			if !allowedSet[sc] {
+				allowed_not_kill_syscalls = append(allowed_not_kill_syscalls, sc)
+			}
+		}
 	}
 
-	err = lib.Seccomp(allowed_syscalls, allowed_not_kill_syscalls)
+	err := lib.Seccomp(allowed_syscalls, allowed_not_kill_syscalls)
 	if err != nil {
 		return err
 	}
 
-	// setuid
-	err = syscall.Setuid(uid)
-	if err != nil {
-		return err
-	}
-
-	// setgid
+	// setgid must be called before setuid
 	err = syscall.Setgid(gid)
+	if err != nil {
+		return err
+	}
+
+	err = syscall.Setuid(uid)
 	if err != nil {
 		return err
 	}

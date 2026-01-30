@@ -2,23 +2,65 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/langgenius/dify-sandbox/internal/core/runner/python"
 	runner_types "github.com/langgenius/dify-sandbox/internal/core/runner/types"
 	"github.com/langgenius/dify-sandbox/internal/static"
+	"github.com/langgenius/dify-sandbox/internal/storage"
 	"github.com/langgenius/dify-sandbox/internal/types"
 )
 
 type RunCodeResponse struct {
-	Stderr string `json:"error"`
-	Stdout string `json:"stdout"`
+	Stderr string            `json:"error"`
+	Stdout string            `json:"stdout"`
+	Files  map[string]string `json:"files"`
 }
 
-func RunPython3Code(ctx context.Context, code string, preload string, options *runner_types.RunnerOptions) *types.DifySandboxResponse {
+// inputFiles is map[filename]file_id
+func RunPython3Code(ctx context.Context, code string, preload string, enableNetwork bool, inputFiles map[string]string, fetchFiles []string) *types.DifySandboxResponse {
+	// Reconstruct options
+	options := &runner_types.RunnerOptions{
+		EnableNetwork: enableNetwork,
+		FetchFiles:    fetchFiles,
+		InputFiles:    make(map[string]io.Reader),
+	}
+
 	if err := checkOptions(options); err != nil {
 		return types.ErrorResponse(-400, err.Error())
+	}
+
+	// Prepare Input Files
+	store := storage.GetStorage()
+	var readersToClose []io.ReadCloser
+	defer func() {
+		for _, r := range readersToClose {
+			r.Close()
+		}
+	}()
+
+	for filename, fileId := range inputFiles {
+		reader, err := store.Get(fileId)
+		if err != nil {
+			return types.ErrorResponse(-400, fmt.Sprintf("failed to get input file %s: %v", filename, err))
+		}
+		options.InputFiles[filename] = reader
+		readersToClose = append(readersToClose, reader)
+	}
+
+	// Prepare Output Handler
+	options.OutputHandler = func(filename, localPath string) (string, error) {
+		f, err := os.Open(localPath)
+		if err != nil {
+			return "", err
+		}
+		defer f.Close()
+		// Upload to storage
+		return store.Put(f, filename)
 	}
 
 	if !static.GetDifySandboxGlobalConfigurations().EnablePreload {
@@ -30,7 +72,7 @@ func RunPython3Code(ctx context.Context, code string, preload string, options *r
 	)
 
 	runner := python.PythonRunner{}
-	stdout, stderr, done, err := runner.Run(ctx,
+	stdout, stderr, done, filesChan, err := runner.Run(ctx,
 		code, timeout, nil, preload, options,
 	)
 	if err != nil {
@@ -39,6 +81,7 @@ func RunPython3Code(ctx context.Context, code string, preload string, options *r
 
 	var stdoutStr strings.Builder
 	var stderrStr strings.Builder
+	var files map[string]string
 
 	defer close(done)
 
@@ -51,8 +94,10 @@ func RunPython3Code(ctx context.Context, code string, preload string, options *r
 				select {
 				case out := <-stdout:
 					stdoutStr.Write(out)
-				case err := <-stderr:
-					stderrStr.Write(err)
+				case errOut := <-stderr:
+					stderrStr.Write(errOut)
+				case f := <-filesChan:
+					files = f
 				default:
 					break drain
 				}
@@ -63,11 +108,15 @@ func RunPython3Code(ctx context.Context, code string, preload string, options *r
 			return types.SuccessResponse(&RunCodeResponse{
 				Stdout: stdoutStr.String(),
 				Stderr: stderrStr.String(),
+				Files:  files,
 			})
 		case out := <-stdout:
 			stdoutStr.Write(out)
-		case err := <-stderr:
-			stderrStr.Write(err)
+		case errOut := <-stderr:
+			stderrStr.Write(errOut)
+		case f := <-filesChan:
+			files = f
+			filesChan = nil // Stop listening to avoid busy loop on closed channel
 		}
 	}
 }

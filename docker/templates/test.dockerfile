@@ -10,12 +10,15 @@ ARG TARGETARCH
 
 # Build stage
 FROM golang:${GOLANG_VERSION} AS builder
+ARG TARGETARCH
 
 COPY . /app
 WORKDIR /app
 
 # Install build dependencies and build
 RUN apt-get update && apt-get install -y pkg-config gcc libseccomp-dev \
+    && touch internal/core/runner/python/python.so \
+    && touch internal/core/runner/nodejs/nodejs.so \
     && go mod tidy \
     && case "${TARGETARCH}" in \
        "amd64") bash ./build/build_amd64.sh ;; \
@@ -98,5 +101,6 @@ RUN case "${TARGETARCH}" in \
     && ln -s /usr/local/go/bin/go /usr/local/bin/go \
     && rm -f go${GOLANG_VERSION}.${GOLANG_ARCH}.tar.gz
 
-# Run tests
-RUN go test -timeout 120s -v ./tests/integration_tests/... 
+# Run tests at container runtime (not during build)
+# Seccomp requires --privileged or CAP_SYS_ADMIN at runtime
+CMD ["go", "test", "-timeout", "120s", "-v", "./tests/integration_tests/..."]

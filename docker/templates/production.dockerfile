@@ -1,4 +1,5 @@
 # Production environment Dockerfile template
+ARG GOLANG_VERSION=${GOLANG_VERSION}
 ARG PYTHON_VERSION=dhi.io/python:3-debian13-sfw-ent-dev
 ARG DEBIAN_MIRROR="http://deb.debian.org/debian testing main"
 ARG PYTHON_PACKAGES="httpx==0.27.2 requests==2.32.3 jinja2==3.1.6 PySocks httpx[socks]"
@@ -6,7 +7,32 @@ ARG NODEJS_VERSION=v20.11.1
 ARG NODEJS_MIRROR="https://npmmirror.com/mirrors/node"
 ARG TARGETARCH
 
+# Build stage - compile Go binaries
+FROM golang:${GOLANG_VERSION} AS builder
+ARG TARGETARCH
+
+RUN apt-get update && apt-get install -y pkg-config gcc libseccomp-dev
+
+COPY . /app
+WORKDIR /app
+
+RUN touch internal/core/runner/python/python.so \
+    && touch internal/core/runner/nodejs/nodejs.so \
+    && go mod tidy \
+    && case "${TARGETARCH}" in \
+       "amd64") bash ./build/build_amd64.sh ;; \
+       "arm64") bash ./build/build_arm64.sh ;; \
+       *) echo "Unsupported architecture: ${TARGETARCH}" && exit 1 ;; \
+       esac
+
+# Production stage
 FROM ${PYTHON_VERSION}
+
+ARG DEBIAN_MIRROR
+ARG PYTHON_PACKAGES
+ARG NODEJS_VERSION
+ARG NODEJS_MIRROR
+ARG TARGETARCH
 
 # Install system dependencies
 RUN echo "deb ${DEBIAN_MIRROR}" > /etc/apt/sources.list \
@@ -25,9 +51,9 @@ RUN echo "deb ${DEBIAN_MIRROR}" > /etc/apt/sources.list \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy binary files
-COPY main /main
-COPY env /env
+# Copy binary files from builder
+COPY --from=builder /app/main /main
+COPY --from=builder /app/env /env
 
 # Copy configuration files
 COPY conf/config.yaml /conf/config.yaml

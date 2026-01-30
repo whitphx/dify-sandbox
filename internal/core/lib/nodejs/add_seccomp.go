@@ -41,10 +41,21 @@ func InitSeccomp(uid int, gid int, enable_network bool) error {
 		}
 	} else {
 		allowed_syscalls = append(allowed_syscalls, nodejs_syscall.ALLOW_SYSCALLS...)
-		allowed_not_kill_syscalls = append(allowed_not_kill_syscalls, nodejs_syscall.ALLOW_ERROR_SYSCALLS...)
 
 		if enable_network {
 			allowed_syscalls = append(allowed_syscalls, nodejs_syscall.ALLOW_NETWORK_SYSCALLS...)
+		}
+
+		// Filter ALLOW_ERROR_SYSCALLS to exclude syscalls already allowed.
+		// This prevents ActErrno rules from overriding ActAllow rules.
+		allowedSet := make(map[int]bool)
+		for _, sc := range allowed_syscalls {
+			allowedSet[sc] = true
+		}
+		for _, sc := range nodejs_syscall.ALLOW_ERROR_SYSCALLS {
+			if !allowedSet[sc] {
+				allowed_not_kill_syscalls = append(allowed_not_kill_syscalls, sc)
+			}
 		}
 	}
 
